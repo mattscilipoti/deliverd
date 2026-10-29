@@ -28,6 +28,8 @@ type Packing struct {
 	Unplaced []int // per entry of Load.All: pieces the heuristic could not place
 	Total    int   // pieces across all sets
 	Skipped  bool  // too many pieces to try
+
+	unplacedAt []int // positions in the placement order of pieces that did not fit
 }
 
 func (p Packing) UnplacedTotal() int {
@@ -43,9 +45,11 @@ func (p Packing) AllPlaced() bool { return !p.Skipped && p.UnplacedTotal() == 0 
 type point struct{ x, y, z float64 }
 
 type piece struct {
+	id     int // position in Load.pieces, so a search can refer to a piece
 	set    int
 	d      Dims
 	weight float64
+	rot    int // which of the piece's orientations to try first; 0 is the flattest
 }
 
 type packOrder struct {
@@ -86,35 +90,16 @@ func footprint(d Dims) float64 {
 // weight counts as weightless: it can sit on anything, and nothing weighted
 // sits on it. A failure means "not found", not "impossible".
 func (l Load) Pack() Packing {
-	all := l.All()
-	var pieces []piece
-	for i, s := range all {
-		for q := 0; q < s.Qty; q++ {
-			pieces = append(pieces, piece{i, s.Dims, s.Weight})
-		}
-	}
+	pieces := l.pieces()
 	if len(pieces) > maxPackPieces {
-		return Packing{Unplaced: make([]int, len(all)), Total: len(pieces), Skipped: true}
-	}
-
-	orders := packOrders
-	for _, pc := range pieces {
-		if pc.weight > 0 {
-			orders = append([]packOrder{weightOrder}, packOrders...)
-			break
-		}
+		return Packing{Unplaced: make([]int, len(l.All())), Total: len(pieces), Skipped: true}
 	}
 
 	var best Packing
 	var bestVol float64
-	for i, o := range orders {
-		sorted := append([]piece(nil), pieces...)
-		sort.SliceStable(sorted, func(a, b int) bool { return o.less(sorted[a], sorted[b]) })
-		p := l.packInOrder(sorted, len(all))
-		var vol float64
-		for _, pl := range p.Placed {
-			vol += pl.Box.Volume()
-		}
+	for i, sorted := range l.baselineOrders(pieces) {
+		p := l.packInOrder(sorted, len(l.All()))
+		vol := p.placedVolume()
 		if i == 0 || vol > bestVol {
 			best, bestVol = p, vol
 		}
@@ -125,13 +110,53 @@ func (l Load) Pack() Packing {
 	return best
 }
 
+// pieces expands every set into one piece per item, in set order.
+func (l Load) pieces() []piece {
+	var pieces []piece
+	for i, s := range l.All() {
+		for q := 0; q < s.Qty; q++ {
+			pieces = append(pieces, piece{id: len(pieces), set: i, d: s.Dims, weight: s.Weight})
+		}
+	}
+	return pieces
+}
+
+// baselineOrders returns the pieces sorted by each ordering Pack tries, best
+// guess first: weight first when any weight is known, then volume, longest
+// side and footprint.
+func (l Load) baselineOrders(pieces []piece) [][]piece {
+	orders := packOrders
+	for _, pc := range pieces {
+		if pc.weight > 0 {
+			orders = append([]packOrder{weightOrder}, packOrders...)
+			break
+		}
+	}
+	out := make([][]piece, len(orders))
+	for i, o := range orders {
+		sorted := append([]piece(nil), pieces...)
+		sort.SliceStable(sorted, func(a, b int) bool { return o.less(sorted[a], sorted[b]) })
+		out[i] = sorted
+	}
+	return out
+}
+
+func (p Packing) placedVolume() float64 {
+	var vol float64
+	for _, pl := range p.Placed {
+		vol += pl.Box.Volume()
+	}
+	return vol
+}
+
 func (l Load) packInOrder(pieces []piece, entries int) Packing {
 	p := Packing{Unplaced: make([]int, entries)}
 	p.Total = len(pieces)
 
 	sp := l.Space
 	points := []point{{}}
-	for _, pc := range pieces {
+	for pos, pc := range pieces {
+		orients := orientationsFrom(pc.d, pc.rot)
 		sort.Slice(points, func(a, b int) bool {
 			pa, pb := points[a], points[b]
 			if pa.z != pb.z {
@@ -146,7 +171,7 @@ func (l Load) packInOrder(pieces []piece, entries int) Packing {
 		placed := false
 	search:
 		for pi, pt := range points {
-			for _, o := range orientations(pc.d) {
+			for _, o := range orients {
 				if pt.x+o.L > sp.L+packEps || pt.y+o.W > sp.W+packEps || pt.z+o.H > sp.H+packEps {
 					continue
 				}
@@ -166,6 +191,7 @@ func (l Load) packInOrder(pieces []piece, entries int) Packing {
 		}
 		if !placed {
 			p.Unplaced[pc.set]++
+			p.unplacedAt = append(p.unplacedAt, pos)
 		}
 	}
 	return p
@@ -198,6 +224,23 @@ func orientations(d Dims) []Dims {
 		}
 		return out[a].L > out[b].L
 	})
+	return out
+}
+
+// orientationsFrom is orientations with the one at index first moved to the
+// front, so a piece can be told to prefer, say, standing on end.
+func orientationsFrom(d Dims, first int) []Dims {
+	all := orientations(d)
+	if first <= 0 || first >= len(all) {
+		return all
+	}
+	out := make([]Dims, 0, len(all))
+	out = append(out, all[first])
+	for i, o := range all {
+		if i != first {
+			out = append(out, o)
+		}
+	}
 	return out
 }
 
