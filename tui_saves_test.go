@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -142,4 +144,35 @@ func TestSaveErrors(t *testing.T) {
 func listOrNil(m model) []string {
 	names, _ := m.store.List()
 	return names
+}
+
+func TestHeaderShowsSaveDirectory(t *testing.T) {
+	m := newSaveModel(t)
+	if want := "Saved load: none (" + m.store.Dir + ")"; !strings.Contains(m.View(), want) {
+		t.Errorf("view missing %q:\n%s", want, m.View())
+	}
+	m = saveAsName(typeSet(m, "10", "10", "10", "1"), "Tuesday")
+	if want := "Saved load: Tuesday (" + m.store.Dir + ")"; !strings.Contains(m.View(), want) {
+		t.Errorf("view missing %q:\n%s", want, m.View())
+	}
+	m = press(typeSet(press(m, "i"), "20", "20", "20", "1"), "esc")
+	if !strings.Contains(m.View(), "Saved load: Tuesday ("+m.store.Dir+") – modified") {
+		t.Errorf("modified state should keep the directory:\n%s", m.View())
+	}
+}
+
+func TestDisplayDirShortensHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory")
+	}
+	if got := displayDir(filepath.Join(home, ".config", "deliverd", "loads")); got != filepath.Join("~", ".config", "deliverd", "loads") {
+		t.Errorf("displayDir = %q", got)
+	}
+	if got := displayDir("/var/data"); got != "/var/data" {
+		t.Errorf("displayDir = %q, want unchanged outside home", got)
+	}
+	if got := displayDir(""); got != "saving unavailable" {
+		t.Errorf("displayDir(\"\") = %q", got)
+	}
 }

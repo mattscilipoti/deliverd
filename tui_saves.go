@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -185,17 +187,31 @@ func (m model) updateConfirm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// loadLine describes which saved load is current, for the header.
+// displayDir is the store directory with the home directory shortened to ~.
+func displayDir(dir string) string {
+	if dir == "" {
+		return "saving unavailable"
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if rel, err := filepath.Rel(home, dir); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+			return filepath.Join("~", rel)
+		}
+	}
+	return dir
+}
+
+// loadLine describes which saved load is current and where loads are stored, for the header.
 func (m model) loadLine() string {
+	where := " (" + displayDir(m.store.Dir) + ")"
 	switch {
 	case m.loadName == "" && len(m.load.Sets) == 0:
-		return "Saved load: none"
+		return "Saved load: none" + where
 	case m.loadName == "":
-		return "Saved load: none (unsaved items)"
+		return "Saved load: none, unsaved items" + where
 	case m.dirty():
-		return fmt.Sprintf("Saved load: %s (modified, w overwrites, W saves as)", m.loadName)
+		return fmt.Sprintf("Saved load: %s%s – modified: w overwrites, W saves as", m.loadName, where)
 	}
-	return fmt.Sprintf("Saved load: %s", m.loadName)
+	return fmt.Sprintf("Saved load: %s%s", m.loadName, where)
 }
 
 func (m model) saveView() string {
