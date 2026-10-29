@@ -174,7 +174,9 @@ func indent(s string) string {
 // renderLayout draws the whole layout screen. header describes the vehicle.
 func renderLayout(l Load, p Packing, header string, width int) string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("deliverd — layout (approximate)") + "\n" + header + "\n\n")
+	b.WriteString(titleStyle.Render("deliverd — layout (approximate)") + "\n" + header + "\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("Dolly (%s × %s × %s in): %s",
+		fmtNum(Dolly.L), fmtNum(Dolly.W), fmtNum(Dolly.H), onOff(l.Dolly))) + "\n\n")
 
 	entries := l.All()
 	switch {
@@ -212,7 +214,7 @@ func renderLayout(l Load, p Packing, header string, width int) string {
 		b.WriteString("\n")
 		b.WriteString(legend(l, p))
 	}
-	b.WriteString("\n" + dimStyle.Render("Press any key to return.") + "\n")
+	b.WriteString("\n" + dimStyle.Render("D dolly on/off • any other key returns") + "\n")
 	return b.String()
 }
 

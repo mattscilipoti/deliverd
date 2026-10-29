@@ -128,7 +128,7 @@ func TestRenderLayoutLegendAndContent(t *testing.T) {
 	out := renderLayout(l, l.Pack(), "Test car", 80)
 	for _, want := range []string{
 		"Top view", "Rear view", "Driver side", "Passenger side", "front", "hatch", "driver", "passenger", "Test car",
-		"A  set #1", "placed 2 of 2", "=  dolly", "B  set #2", "1 not placed", "Press any key",
+		"A  set #1", "placed 2 of 2", "=  dolly", "B  set #2", "1 not placed", "any other key returns", "Dolly (48 × 24 × 6 in): on",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("layout missing %q:\n%s", want, out)

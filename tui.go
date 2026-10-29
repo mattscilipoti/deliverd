@@ -313,8 +313,10 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateOpen(key)
 		case modeConfirm:
 			return m.updateConfirm(key)
-		case modeHelp, modeLayout:
+		case modeHelp:
 			return m.updateHelp(key)
+		case modeLayout:
+			return m.updateLayout(key)
 		default:
 			if next, cmd, handled := m.updateForm(key); handled {
 				return next, cmd

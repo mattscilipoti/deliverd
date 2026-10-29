@@ -33,7 +33,7 @@ var helpSections = []struct {
 		"r                 rear seats up/down",
 		"v                 next vehicle",
 		"s                 type custom cargo dimensions",
-		"L                 show the packing layout (top, rear, driver and passenger sides)",
+		"L                 show the packing layout (D there toggles the dolly)",
 		"D                 dolly (48 × 24 × 6 in) on/off",
 		"q                 quit",
 	}},
@@ -101,4 +101,14 @@ func (m model) layoutHeader() string {
 		name = Vehicles[m.vehicle].Name + ", " + seatsLabel(m.seatsDown)
 	}
 	return fmt.Sprintf("%s (%s × %s × %s in)", name, fmtNum(c.L), fmtNum(c.W), fmtNum(c.H))
+}
+
+// updateLayout lets D toggle the dolly and redraws; any other key returns.
+func (m model) updateLayout(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if key.String() == "D" {
+		m.load.Dolly = !m.load.Dolly
+		m.layoutPack = m.load.Pack()
+		return m, nil
+	}
+	return m.updateHelp(key)
 }

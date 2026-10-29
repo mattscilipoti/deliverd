@@ -343,3 +343,33 @@ func TestBuildLabelLocalTimeZone(t *testing.T) {
 		}
 	}
 }
+
+func TestDollyToggleInsideLayout(t *testing.T) {
+	m := typeSet(newTestModel(true), "40", "30", "20", "1")
+	m = press(m, "esc", "L")
+	if m.load.Dolly || !strings.Contains(m.View(), "Dolly (48 × 24 × 6 in): off") || strings.Contains(m.View(), "=  dolly") {
+		t.Fatalf("dolly should start off:\n%s", m.View())
+	}
+	m = press(m, "D")
+	v := m.View()
+	if m.mode != modeLayout || !m.load.Dolly || !strings.Contains(v, "Dolly (48 × 24 × 6 in): on") || !strings.Contains(v, "=  dolly") {
+		t.Fatalf("mode=%v dolly=%v; D should add the dolly and stay on the layout:\n%s", m.mode, m.load.Dolly, v)
+	}
+	if !strings.Contains(v, "=") || !strings.Contains(v, "placed 1 of 1") {
+		t.Errorf("dolly missing from the drawing or legend:\n%s", v)
+	}
+	if m = press(m, "D"); m.load.Dolly || m.mode != modeLayout {
+		t.Errorf("second D should remove it: dolly=%v mode=%v", m.load.Dolly, m.mode)
+	}
+	m = press(m, "x")
+	if m.mode != modeCommand {
+		t.Errorf("mode = %v, want command mode after another key", m.mode)
+	}
+}
+
+func TestLayoutShowsDollyAlone(t *testing.T) {
+	m := press(newTestModel(true), "esc", "D", "L")
+	if v := m.View(); !strings.Contains(v, "Driver side") || !strings.Contains(v, "=  dolly") {
+		t.Errorf("a dolly with no item sets should still draw:\n%s", v)
+	}
+}
