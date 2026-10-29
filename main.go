@@ -4,19 +4,33 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// buildTime is set at build time by build.sh (-ldflags "-X main.buildTime=...").
+// buildTime is an RFC 3339 UTC timestamp set at build time by build.sh
+// (-ldflags "-X main.buildTime=...").
 var buildTime string
 
-// buildLabel is shown on the main screen and in help.
-func buildLabel() string {
-	if buildTime == "" {
+// buildLabel is shown on the main screen and in help, in the local time zone.
+func buildLabel() string { return buildLabelIn(buildTime, time.Local) }
+
+// buildLabelIn formats raw in loc, adding the UTC time when loc isn't UTC.
+// A value that isn't RFC 3339 is shown as is.
+func buildLabelIn(raw string, loc *time.Location) string {
+	if raw == "" {
 		return "dev build (not stamped)"
 	}
-	return "built " + buildTime
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return "built " + raw
+	}
+	local := t.In(loc)
+	if _, offset := local.Zone(); offset == 0 {
+		return "built " + t.UTC().Format("2006-01-02 15:04 UTC")
+	}
+	return "built " + local.Format("2006-01-02 15:04 MST") + " (" + t.UTC().Format("2006-01-02 15:04 UTC") + ")"
 }
 
 func main() {

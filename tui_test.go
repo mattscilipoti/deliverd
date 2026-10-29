@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -318,5 +319,27 @@ func TestBuildLabelOnMainScreenAndHelp(t *testing.T) {
 	}
 	if !strings.Contains(press(m, "?").View(), "built 2026-10-29 12:56 UTC") {
 		t.Error("help missing build time")
+	}
+}
+
+func TestBuildLabelLocalTimeZone(t *testing.T) {
+	const raw = "2026-10-29T14:10:30Z"
+	edt := time.FixedZone("EDT", -4*3600)
+	ist := time.FixedZone("IST", 5*3600+1800)
+	for _, tc := range []struct {
+		name string
+		raw  string
+		loc  *time.Location
+		want string
+	}{
+		{"east coast", raw, edt, "built 2026-10-29 10:10 EDT (2026-10-29 14:10 UTC)"},
+		{"half-hour zone crossing midnight", "2026-10-29T20:00:00Z", ist, "built 2026-10-30 01:30 IST (2026-10-29 20:00 UTC)"},
+		{"UTC machine", raw, time.UTC, "built 2026-10-29 14:10 UTC"},
+		{"not RFC 3339", "last Tuesday", edt, "built last Tuesday"},
+		{"unstamped", "", edt, "dev build (not stamped)"},
+	} {
+		if got := buildLabelIn(tc.raw, tc.loc); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }
