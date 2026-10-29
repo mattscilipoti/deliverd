@@ -41,10 +41,21 @@ func main() {
 	flag.BoolVar(&o.merge, "merge", true, "combine item sets with identical dimensions")
 	seats := flag.String("seats", "down", "rear seats: up or down")
 	dollyFlag := flag.String("dolly", "off", `dolly: "off", "seats" (stowed behind the seats, not counted) or "items" (packed with the items)`)
+	flag.Float64Var(&o.payload, "payload", 0, "override the combined occupant + cargo weight limit in lb (default: the vehicle's)")
+	occupants := flag.Float64("occupants", DefaultOccupantsLb, "weight of the people in the car in lb")
 	version := flag.Bool("version", false, "print the build time and exit")
 	dir := flag.String("dir", "", "directory for saved loads (default: user config dir)")
 	flag.Parse()
 
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "occupants" {
+			o.occupants, o.occupantsSet = *occupants, true
+		}
+	})
+	if o.payload < 0 || *occupants < 0 {
+		fmt.Fprintln(os.Stderr, "-payload and -occupants must not be negative")
+		os.Exit(2)
+	}
 	var err error
 	if o.dolly, err = ParseDollyMode(*dollyFlag); err != nil {
 		fmt.Fprintln(os.Stderr, err)

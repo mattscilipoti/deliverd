@@ -20,7 +20,7 @@ var helpSections = []struct {
 	}},
 	{"Adding items", []string{
 		"tab / shift+tab   next / previous field",
-		"enter             add the set",
+		"enter             add the set (Wt = lb per item, optional; empty Qty = 1)",
 		"esc               switch to command mode",
 	}},
 	{"Command mode (after esc)", []string{
@@ -33,6 +33,7 @@ var helpSections = []struct {
 		"r                 rear seats up/down",
 		"v                 next vehicle",
 		"s                 type custom cargo dimensions",
+		"p                 set the weight limit and occupant weight (lb)",
 		"L                 show the packing layout (D there cycles the dolly)",
 		"D                 dolly: off → behind seats (not counted) → with items (48 × 24 × 6 in)",
 		"q                 quit",
@@ -50,6 +51,8 @@ var helpSections = []struct {
 		"-seats up|down    rear seats (default down)",
 		"-length -width -height   override the cargo size, in inches",
 		"-dolly off|seats|items   where the dolly goes (default off)",
+		"-payload LB       override the combined occupant + cargo weight limit",
+		"-occupants LB     occupant weight (default 175)",
 		"-merge=false      keep identical sets separate",
 		"-dir PATH         where saved loads live (default: your config dir)",
 		"-version          print the build time and exit",

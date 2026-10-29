@@ -228,12 +228,16 @@ func legend(l Load, p Packing) string {
 		if l.DollyPacked() && i == len(l.Sets) {
 			name = "dolly"
 		}
-		line := fmt.Sprintf("%s  %-7s %2d × %s×%s×%s in   placed %d of %d",
+		tail := ""
+		if s.Weight > 0 {
+			tail = "   " + fmtLb(s.TotalWeight())
+		}
+		line := fmt.Sprintf("%s  %-7s %2d × %s×%s×%s in   placed %d of %d%s",
 			entryStyle(l, i).Render(string(labelFor(l, i))), name,
-			s.Qty, fmtNum(s.L), fmtNum(s.W), fmtNum(s.H), placed[i], s.Qty)
+			s.Qty, fmtNum(s.L), fmtNum(s.W), fmtNum(s.H), placed[i], s.Qty, tail)
 		if placed[i] < s.Qty {
-			line = badStyle.Render(fmt.Sprintf("%c  %-7s %2d × %s×%s×%s in   placed %d of %d — %d not placed",
-				labelFor(l, i), name, s.Qty, fmtNum(s.L), fmtNum(s.W), fmtNum(s.H), placed[i], s.Qty, s.Qty-placed[i]))
+			line = badStyle.Render(fmt.Sprintf("%c  %-7s %2d × %s×%s×%s in   placed %d of %d — %d not placed%s",
+				labelFor(l, i), name, s.Qty, fmtNum(s.L), fmtNum(s.W), fmtNum(s.H), placed[i], s.Qty, s.Qty-placed[i], tail))
 		}
 		b.WriteString(indent(line) + "\n")
 	}

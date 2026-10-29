@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -17,6 +18,7 @@ const (
 	modeItem    mode = iota // typing a new item set
 	modeCommand             // item inputs blurred; single-key commands active
 	modeSpace               // editing cargo dimensions
+	modeWeights             // editing the weight limit and occupant weight
 	modeSave                // typing a name to save the items under
 	modeOpen                // choosing a saved load to open
 	modeConfirm             // waiting for y/n
@@ -32,20 +34,22 @@ var (
 )
 
 type model struct {
-	load       Load
-	mode       mode
-	itemInputs []textinput.Model // L, W, H, Qty
-	spcInputs  []textinput.Model // L, W, H
-	focus      int
-	err        error
-	merge      bool // combine sets with identical dimensions
-	vehicle    int  // index into Vehicles
-	seatsDown  bool
-	custom     bool // cargo space was overridden by hand or by flags
-	pack       Packing
-	packKey    string // load the cached pack was computed for
-	sel        int    // selected set in command mode
-	editing    int    // index of the set being edited, or -1
+	load        Load
+	mode        mode
+	itemInputs  []textinput.Model // L, W, H, Wt, Qty
+	spcInputs   []textinput.Model // L, W, H
+	occInputs   []textinput.Model // weight limit, occupants (lb)
+	customLimit bool              // weight limit was overridden by hand or by flags
+	focus       int
+	err         error
+	merge       bool // combine sets with identical dimensions
+	vehicle     int  // index into Vehicles
+	seatsDown   bool
+	custom      bool // cargo space was overridden by hand or by flags
+	pack        Packing
+	packKey     string // load the cached pack was computed for
+	sel         int    // selected set in command mode
+	editing     int    // index of the set being edited, or -1
 
 	store         Store
 	loadName      string // saved load currently open, or ""
@@ -81,15 +85,20 @@ type options struct {
 	merge     bool
 	override  Dims
 	dolly     DollyMode
-	storeDir  string // where saved loads live; empty disables saving
+	payload   float64 // weight limit override in lb; 0 keeps the vehicle's
+	occupants float64
+	// occupantsSet says occupants was given, since 0 is a valid weight.
+	occupantsSet bool
+	storeDir     string // where saved loads live; empty disables saving
 }
 
 func newModel(o options) model {
 	m := model{
 		vehicle:    o.vehicle,
 		seatsDown:  o.seatsDown,
-		itemInputs: newInputs([]string{"L", "W", "H", "Qty"}),
+		itemInputs: newInputs([]string{"L", "W", "H", "Wt", "Qty"}),
 		spcInputs:  newInputs([]string{"L", "W", "H"}),
+		occInputs:  newInputs([]string{"Limit lb", "Occupants lb"}),
 		merge:      o.merge,
 		editing:    -1,
 		store:      Store{Dir: o.storeDir},
@@ -110,7 +119,16 @@ func newModel(o options) model {
 			m.custom = true
 		}
 	}
-	m.itemInputs[3].Placeholder = "1"
+	m.load.Occupants = DefaultOccupantsLb
+	if o.occupantsSet {
+		m.load.Occupants = o.occupants
+	}
+	if o.payload > 0 {
+		m.load.PayloadLimit = o.payload
+		m.customLimit = true
+	}
+	m.itemInputs[3].Placeholder = "none"
+	m.itemInputs[4].Placeholder = "1"
 	m.setFocus(m.itemInputs, 0)
 	return m
 }
@@ -119,6 +137,9 @@ func newModel(o options) model {
 func (m *model) usePreset() {
 	m.load.Space = Vehicles[m.vehicle].Cargo(m.seatsDown).Dims
 	m.custom = false
+	if !m.customLimit {
+		m.load.PayloadLimit = Vehicles[m.vehicle].PayloadLb
+	}
 }
 
 func (m model) Init() tea.Cmd { return textinput.Blink }
@@ -130,6 +151,8 @@ func (m *model) active() []textinput.Model {
 		return m.itemInputs
 	case modeSpace:
 		return m.spcInputs
+	case modeWeights:
+		return m.occInputs
 	}
 	return nil
 }
@@ -170,19 +193,36 @@ func parseDims(group []textinput.Model, names []string) (Dims, error) {
 	return Dims{v[0], v[1], v[2]}, nil
 }
 
-// readItemSet parses the item inputs. An empty Qty means 1.
+// parseWeight reads a weight in lb. Empty means 0, which for an item means not entered.
+func parseWeight(s, name string) (float64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil || v < 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0, fmt.Errorf("%s must be a number, 0 or more (pounds)", name)
+	}
+	return v, nil
+}
+
+// readItemSet parses the item inputs. An empty Qty means 1 and an empty Wt means no weight.
 func (m *model) readItemSet() (ItemSet, error) {
 	d, err := parseDims(m.itemInputs[:3], []string{"L", "W", "H"})
 	if err != nil {
 		return ItemSet{}, err
 	}
+	wt, err := parseWeight(m.itemInputs[3].Value(), "Wt")
+	if err != nil {
+		return ItemSet{}, err
+	}
 	qty := 1
-	if q := strings.TrimSpace(m.itemInputs[3].Value()); q != "" {
+	if q := strings.TrimSpace(m.itemInputs[4].Value()); q != "" {
 		if qty, err = strconv.Atoi(q); err != nil || qty <= 0 {
 			return ItemSet{}, errors.New("Qty must be a positive whole number")
 		}
 	}
-	return ItemSet{Qty: qty, Dims: d}, nil
+	return ItemSet{Qty: qty, Weight: wt, Dims: d}, nil
 }
 
 func (m *model) clearItemInputs() {
@@ -215,6 +255,7 @@ func (m *model) enterCommandMode() {
 	m.err = nil
 	blurAll(m.itemInputs)
 	blurAll(m.spcInputs)
+	blurAll(m.occInputs)
 	m.nameInput.Blur()
 	m.clampSel()
 }
@@ -236,7 +277,11 @@ func (m *model) editSelected() {
 	for i, v := range []float64{set.L, set.W, set.H} {
 		m.itemInputs[i].SetValue(fmtNum(v))
 	}
-	m.itemInputs[3].SetValue(strconv.Itoa(set.Qty))
+	m.itemInputs[3].SetValue("")
+	if set.Weight > 0 {
+		m.itemInputs[3].SetValue(fmtNum(set.Weight))
+	}
+	m.itemInputs[4].SetValue(strconv.Itoa(set.Qty))
 	m.editing = m.sel
 	m.mode = modeItem
 	m.err = nil
@@ -257,6 +302,7 @@ func (m *model) enterItemMode() {
 	m.mode = modeItem
 	m.err = nil
 	blurAll(m.spcInputs)
+	blurAll(m.occInputs)
 	m.setFocus(m.itemInputs, m.focus)
 }
 
@@ -264,11 +310,36 @@ func (m *model) enterSpaceMode() {
 	m.mode = modeSpace
 	m.err = nil
 	blurAll(m.itemInputs)
+	blurAll(m.occInputs)
 	s := m.load.Space
 	for i, v := range []float64{s.L, s.W, s.H} {
 		m.spcInputs[i].SetValue(strconv.FormatFloat(v, 'f', -1, 64))
 	}
 	m.setFocus(m.spcInputs, 0)
+}
+
+func (m *model) enterWeightsMode() {
+	m.mode = modeWeights
+	m.err = nil
+	blurAll(m.itemInputs)
+	blurAll(m.spcInputs)
+	m.occInputs[0].SetValue(fmtNum(m.load.PayloadLimit))
+	m.occInputs[1].SetValue(fmtNum(m.load.Occupants))
+	m.setFocus(m.occInputs, 0)
+}
+
+func (m *model) applyWeights() error {
+	limit, err := parseWeight(m.occInputs[0].Value(), "Limit")
+	if err != nil {
+		return err
+	}
+	occ, err := parseWeight(m.occInputs[1].Value(), "Occupants")
+	if err != nil {
+		return err
+	}
+	m.load.PayloadLimit, m.load.Occupants = limit, occ
+	m.customLimit = limit != Vehicles[m.vehicle].PayloadLb
+	return nil
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -373,8 +444,11 @@ func (m model) updateCommand(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.beginOpen()
 	case "s":
 		m.enterSpaceMode()
+	case "p":
+		m.enterWeightsMode()
 	case "v":
 		m.vehicle = (m.vehicle + 1) % len(Vehicles)
+		m.customLimit = false
 		m.usePreset()
 	case "r":
 		m.seatsDown = !m.seatsDown
@@ -402,7 +476,7 @@ func (m model) updateForm(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	case "?":
 		m.showHelp()
 	case "esc":
-		if m.mode == modeSpace {
+		if m.mode == modeSpace || m.mode == modeWeights {
 			m.enterCommandMode()
 			break
 		}
@@ -412,11 +486,15 @@ func (m model) updateForm(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		}
 		m.enterCommandMode()
 	case "enter":
-		if m.mode == modeItem {
+		apply := m.applySpace
+		switch m.mode {
+		case modeItem:
 			m.err = m.submitItem()
-			break
+			return m, textinput.Blink, true
+		case modeWeights:
+			apply = m.applyWeights
 		}
-		if m.err = m.applySpace(); m.err == nil {
+		if m.err = apply(); m.err == nil {
 			m.enterCommandMode()
 		}
 	default:
@@ -488,12 +566,15 @@ func (m model) View() string {
 	if !m.custom {
 		b.WriteString(dimStyle.Render(veh.describe(m.seatsDown)) + "\n")
 	}
-	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(m.weightHeader()) + "\n\n")
 
 	switch m.mode {
 	case modeSpace:
 		b.WriteString("Edit cargo space (inches):\n")
 		b.WriteString(joinInputs(m.spcInputs) + "\n")
+	case modeWeights:
+		b.WriteString("Weight limit for occupants + cargo, and occupant weight (lb). Limit 0 = no limit:\n")
+		b.WriteString(joinInputs(m.occInputs) + "\n")
 	case modeSave:
 		b.WriteString(m.saveView())
 	case modeOpen:
@@ -550,14 +631,14 @@ func (m model) setsTable() string {
 		over[i] = true
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "  %-3s %5s  %-22s %s\n", "#", "Qty", "L × W × H (in)", "Volume")
+	fmt.Fprintf(&b, "  %-3s %5s  %-22s %-9s %s\n", "#", "Qty", "L × W × H (in)", "Weight", "Volume")
 	for i, s := range m.load.Sets {
 		dims := fmt.Sprintf("%s × %s × %s", fmtNum(s.L), fmtNum(s.W), fmtNum(s.H))
 		marker := "  "
 		if m.mode == modeCommand && i == m.sel {
 			marker = "▸ "
 		}
-		line := fmt.Sprintf("%s%-3d %5d  %-22s %s", marker, i+1, s.Qty, dims, fmtVol(s.TotalVolume()))
+		line := fmt.Sprintf("%s%-3d %5d  %-22s %-9s %s", marker, i+1, s.Qty, dims, weightCell(s), fmtVol(s.TotalVolume()))
 		if over[i] {
 			line = badStyle.Render(line + "  ⚠ too big")
 		}
@@ -565,8 +646,8 @@ func (m model) setsTable() string {
 	}
 	if m.load.DollyPacked() {
 		d := Dolly
-		line := fmt.Sprintf("  %-3s %5d  %-22s %s", "–", d.Qty,
-			fmt.Sprintf("%s × %s × %s", fmtNum(d.L), fmtNum(d.W), fmtNum(d.H)), fmtVol(d.TotalVolume())+"  dolly")
+		line := fmt.Sprintf("  %-3s %5d  %-22s %-9s %s", "–", d.Qty,
+			fmt.Sprintf("%s × %s × %s", fmtNum(d.L), fmtNum(d.W), fmtNum(d.H)), "–", fmtVol(d.TotalVolume())+"  dolly")
 		if over[len(m.load.Sets)] {
 			line = badStyle.Render(line + "  ⚠ too big")
 		}
@@ -595,6 +676,7 @@ func (m model) summary() string {
 	fmt.Fprintf(&b, "Used:      %s\n", fmtVol(used))
 	fmt.Fprintf(&b, "Available: %s\n", fmtVol(avail))
 	fmt.Fprintf(&b, "[%s] %.0f%%\n", bar(frac, 30), frac*100)
+	b.WriteString(m.weightSummary())
 
 	switch {
 	case len(l.Sets) == 0:
@@ -636,11 +718,72 @@ func (m model) packingLine() string {
 		dimStyle.Render("  It can miss arrangements, so this may still fit if you load it by hand.") + "\n"
 }
 
+// fmtLb formats a weight, dropping a trailing .0.
+func fmtLb(v float64) string {
+	if v == math.Trunc(v) {
+		return commas(int64(v)) + " lb"
+	}
+	return fmt.Sprintf("%.1f lb", v)
+}
+
+func weightCell(s ItemSet) string {
+	if s.Weight == 0 {
+		return "–"
+	}
+	return fmtLb(s.TotalWeight())
+}
+
+// weightHeader states the weight limit, the occupant weight and what is left for cargo.
+func (m model) weightHeader() string {
+	l := m.load
+	if !l.HasWeightLimit() {
+		return "Weight limit: none set (p to set)"
+	}
+	s := fmt.Sprintf("Weight limit %s − occupants %s = %s for cargo (p to change)",
+		fmtLb(l.PayloadLimit), fmtLb(l.Occupants), fmtLb(l.WeightAllowance()))
+	if m.customLimit {
+		return s + ". Limit is custom."
+	}
+	return s + ". Limit: " + Vehicles[m.vehicle].PayloadNote + "."
+}
+
+// weightSummary shows the entered cargo weight against the allowance.
+func (m model) weightSummary() string {
+	l := m.load
+	w := l.Weight()
+	var b strings.Builder
+	if !l.HasWeightLimit() {
+		fmt.Fprintf(&b, "Weight:    %s entered (no limit set)\n", fmtLb(w))
+	} else {
+		frac := 0.0
+		if allow := l.WeightAllowance(); allow > 0 {
+			frac = w / allow
+		} else if w > 0 {
+			frac = 1
+		}
+		fmt.Fprintf(&b, "Weight:    %s of %s for cargo\n", fmtLb(w), fmtLb(l.WeightAllowance()))
+		fmt.Fprintf(&b, "[%s] %.0f%%\n", bar(frac, 30), frac*100)
+	}
+	switch {
+	case !l.HasWeightLimit():
+	case l.WeightAllowance() < 0:
+		b.WriteString(badStyle.Render(fmt.Sprintf("❌ Occupants alone exceed the weight limit by %s", fmtLb(-l.WeightAllowance()))) + "\n")
+	case !l.WeightOK():
+		b.WriteString(badStyle.Render(fmt.Sprintf("❌ Over the weight limit by %s", fmtLb(-l.WeightRemaining()))) + "\n")
+	case len(l.Sets) > 0:
+		b.WriteString(okStyle.Render(fmt.Sprintf("✅ Within the weight limit (%s to spare)", fmtLb(l.WeightRemaining()))) + "\n")
+	}
+	if n := l.Unweighted(); n > 0 && len(l.Sets) > 0 {
+		b.WriteString(badStyle.Render(fmt.Sprintf("⚠ %d of %d sets have no weight, so the total is a minimum", n, len(l.Sets))) + "\n")
+	}
+	return b.String()
+}
+
 func (m model) help() string {
 	switch m.mode {
 	case modeCommand:
-		return "? help • ↑/↓ select • e edit set • d delete set • c clear • m merge on/off • r seats up/down • v vehicle • s custom cargo space • L layout • D dolly • w save • W save as • o open • i/enter add • q quit"
-	case modeSpace:
+		return "? help • ↑/↓ select • e edit set • d delete set • c clear • m merge on/off • r seats up/down • v vehicle • s custom cargo space • p weight limit • L layout • D dolly • w save • W save as • o open • i/enter add • q quit"
+	case modeSpace, modeWeights:
 		return "? help • tab next field • enter apply • esc cancel • ctrl+c quit"
 	case modeSave:
 		return "enter save • esc cancel • ctrl+c quit"

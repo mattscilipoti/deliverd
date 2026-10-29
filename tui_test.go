@@ -31,9 +31,16 @@ func press(m model, keys ...string) model {
 	return m
 }
 
-// typeSet fills L, W, H (and Qty if non-empty) and presses enter.
-func typeSet(m model, l, w, h, qty string) model {
+// typeSet fills L, W, H and Qty (skipping the optional weight) and presses enter.
+func typeSet(m model, l, w, h, qty string) model { return typeSetW(m, l, w, h, "", qty) }
+
+// typeSetW fills L, W, H, Wt and Qty; an empty wt or qty is left blank.
+func typeSetW(m model, l, w, h, wt, qty string) model {
 	m = press(m, l, "tab", w, "tab", h, "tab")
+	if wt != "" {
+		m = press(m, wt)
+	}
+	m = press(m, "tab")
 	if qty != "" {
 		m = press(m, qty)
 	}
@@ -386,5 +393,148 @@ func TestStowedDollyAloneHasNothingToDraw(t *testing.T) {
 	m := press(newTestModel(true), "esc", "D", "L")
 	if v := m.View(); !strings.Contains(v, "Nothing to show") || !strings.Contains(v, "behind seats") {
 		t.Errorf("a stowed dolly takes no cargo space, so there is nothing to draw:\n%s", v)
+	}
+}
+
+func TestWeightEntry(t *testing.T) {
+	m := typeSetW(newTestModel(true), "10", "10", "10", "12.5", "4")
+	want := ItemSet{Qty: 4, Weight: 12.5, Dims: Dims{10, 10, 10}}
+	if len(m.load.Sets) != 1 || m.load.Sets[0] != want {
+		t.Fatalf("Sets = %v, want [%v]", m.load.Sets, want)
+	}
+	if v := m.View(); !strings.Contains(v, "50 lb") {
+		t.Errorf("table should show the set's total weight (4 × 12.5):\n%s", v)
+	}
+	if bad := typeSetW(newTestModel(true), "10", "10", "10", "heavy", "1"); bad.err == nil || len(bad.load.Sets) != 0 {
+		t.Errorf("err=%v sets=%v, want an invalid weight rejected", bad.err, bad.load.Sets)
+	}
+	if neg := typeSetW(newTestModel(true), "10", "10", "10", "-3", "1"); neg.err == nil {
+		t.Error("a negative weight should be rejected")
+	}
+	if blank := typeSet(newTestModel(true), "10", "10", "10", "1"); blank.err != nil || blank.load.Sets[0].Weight != 0 {
+		t.Errorf("err=%v sets=%v, want an empty weight accepted as not entered", blank.err, blank.load.Sets)
+	}
+}
+
+func TestWeightSummaryWithinAndOver(t *testing.T) {
+	m := typeSetW(newTestModel(true), "10", "10", "10", "50", "3") // 150 lb
+	v := m.View()
+	for _, want := range []string{
+		"Weight limit 915 lb − occupants 175 lb = 740 lb for cargo",
+		"unverified", "door jamb",
+		"150 lb of 740 lb for cargo", "Within the weight limit (590 lb to spare)",
+	} {
+		if !strings.Contains(v, want) {
+			t.Errorf("view missing %q:\n%s", want, v)
+		}
+	}
+	m = typeSetW(m, "20", "20", "20", "100", "9") // +900 lb
+	if v := m.View(); !strings.Contains(v, "Over the weight limit by 310 lb") {
+		t.Errorf("view should report the overage:\n%s", v)
+	}
+}
+
+func TestUnweightedSetsWarn(t *testing.T) {
+	m := typeSetW(newTestModel(true), "10", "10", "10", "50", "1")
+	m = typeSet(m, "5", "5", "5", "2")
+	if v := m.View(); !strings.Contains(v, "1 of 2 sets have no weight, so the total is a minimum") {
+		t.Errorf("view missing the unweighted warning:\n%s", v)
+	}
+}
+
+func TestEditWeightLimitAndOccupants(t *testing.T) {
+	m := press(newTestModel(true), "esc", "p")
+	if m.mode != modeWeights || m.occInputs[0].Value() != "915" || m.occInputs[1].Value() != "175" {
+		t.Fatalf("mode=%v limit=%q occupants=%q, want the current values prefilled",
+			m.mode, m.occInputs[0].Value(), m.occInputs[1].Value())
+	}
+	m.occInputs[0].SetValue("1000")
+	m.occInputs[1].SetValue("350")
+	m = press(m, "enter")
+	if m.mode != modeCommand || m.load.PayloadLimit != 1000 || m.load.Occupants != 350 || !m.customLimit {
+		t.Fatalf("mode=%v limit=%v occupants=%v custom=%v", m.mode, m.load.PayloadLimit, m.load.Occupants, m.customLimit)
+	}
+	if v := m.View(); !strings.Contains(v, "= 650 lb for cargo") || !strings.Contains(v, "Limit is custom") {
+		t.Errorf("header should reflect the custom limit:\n%s", v)
+	}
+	// Typing the vehicle's own limit back goes to the vehicle's note again.
+	m = press(m, "p")
+	m.occInputs[0].SetValue("915")
+	if m = press(m, "enter"); m.customLimit {
+		t.Error("restoring the vehicle's limit should clear the custom flag")
+	}
+}
+
+func TestWeightFormRejectsBadInputAndCancels(t *testing.T) {
+	m := press(newTestModel(true), "esc", "p")
+	m.occInputs[1].SetValue("lots")
+	m = press(m, "enter")
+	if m.mode != modeWeights || m.err == nil || m.load.Occupants != DefaultOccupantsLb {
+		t.Errorf("mode=%v err=%v occupants=%v, want the form to stay open and nothing applied", m.mode, m.err, m.load.Occupants)
+	}
+	m = press(m, "esc")
+	if m.mode != modeCommand || m.load.Occupants != DefaultOccupantsLb {
+		t.Errorf("mode=%v occupants=%v after cancel", m.mode, m.load.Occupants)
+	}
+}
+
+func TestOccupantsAloneOverLimit(t *testing.T) {
+	m := newModel(options{seatsDown: true, merge: true, occupants: 1000, occupantsSet: true})
+	if v := m.View(); !strings.Contains(v, "Occupants alone exceed the weight limit by 85 lb") {
+		t.Errorf("view missing the occupants warning:\n%s", v)
+	}
+}
+
+func TestPayloadAndOccupantsOptions(t *testing.T) {
+	m := newModel(options{seatsDown: true, merge: true, payload: 800, occupants: 0, occupantsSet: true})
+	if m.load.PayloadLimit != 800 || m.load.Occupants != 0 || !m.customLimit {
+		t.Errorf("limit=%v occupants=%v custom=%v; flags should override, and 0 is a valid occupant weight",
+			m.load.PayloadLimit, m.load.Occupants, m.customLimit)
+	}
+	// Switching seats keeps a custom limit; switching vehicles resets it.
+	if m = press(m, "esc", "r"); m.load.PayloadLimit != 800 {
+		t.Errorf("limit = %v after toggling seats, want it kept", m.load.PayloadLimit)
+	}
+	if m = press(m, "v"); m.load.PayloadLimit != Vehicles[0].PayloadLb || m.customLimit {
+		t.Errorf("limit = %v custom=%v after choosing a vehicle, want the vehicle's limit", m.load.PayloadLimit, m.customLimit)
+	}
+}
+
+func TestEditKeepsWeight(t *testing.T) {
+	m := typeSetW(newTestModel(true), "10", "10", "10", "7.5", "2")
+	m = press(m, "esc", "e")
+	if got := m.itemInputs[3].Value(); got != "7.5" {
+		t.Fatalf("Wt prefilled = %q, want 7.5", got)
+	}
+	m.itemInputs[3].SetValue("9")
+	m = press(m, "enter")
+	if m.load.Sets[0].Weight != 9 || m.load.Sets[0].Qty != 2 {
+		t.Errorf("Sets = %v, want weight 9 and qty 2", m.load.Sets)
+	}
+}
+
+func TestSameSizeDifferentWeightStaySeparate(t *testing.T) {
+	m := typeSetW(newTestModel(true), "10", "10", "10", "5", "1")
+	m = typeSetW(m, "10", "10", "10", "8", "1")
+	m = typeSetW(m, "10", "10", "10", "8", "2")
+	if len(m.load.Sets) != 2 || m.load.Sets[1].Qty != 3 {
+		t.Errorf("Sets = %v, want 2 sets with the second at qty 3", m.load.Sets)
+	}
+}
+
+func TestWeightsSurviveSaveAndOpen(t *testing.T) {
+	m := saveAsName(typeSetW(newSaveModel(t), "10", "10", "10", "25", "2"), "heavy")
+	m = press(m, "c")
+	m = press(m, "o", "enter", "y")
+	if len(m.load.Sets) != 1 || m.load.Sets[0].Weight != 25 || m.load.Weight() != 50 {
+		t.Errorf("Sets = %v, want the weight kept through save and open", m.load.Sets)
+	}
+}
+
+func TestLayoutLegendShowsWeight(t *testing.T) {
+	m := typeSetW(newTestModel(true), "10", "10", "10", "25", "2")
+	m = press(m, "esc", "L")
+	if v := m.View(); !strings.Contains(v, "50 lb") {
+		t.Errorf("legend should show the set's total weight:\n%s", v)
 	}
 }
