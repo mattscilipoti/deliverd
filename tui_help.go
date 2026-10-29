@@ -33,7 +33,7 @@ var helpSections = []struct {
 		"r                 rear seats up/down",
 		"v                 next vehicle",
 		"s                 type custom cargo dimensions",
-		"L                 show the packing layout (top, side and rear views)",
+		"L                 show the packing layout (top, rear, driver and passenger sides)",
 		"D                 dolly (48 × 24 × 6 in) on/off",
 		"q                 quit",
 	}},

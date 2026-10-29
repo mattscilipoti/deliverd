@@ -42,10 +42,12 @@ func cells(dim, per float64) int {
 }
 
 // chooseScale returns the smallest whole number of inches per column such that
-// the side and rear views fit side by side in width.
+// the widest row of the layout fits in width. The rows are top + rear, and
+// driver side + passenger side; the latter is usually the wider.
 func chooseScale(sp Dims, width int) float64 {
 	for s := 1.0; s < 1000; s++ {
-		if cells(sp.L, s)+cells(sp.W, s)+layoutMargin+layoutGap <= width {
+		l, w := cells(sp.L, s), cells(sp.W, s)
+		if max(l+w, 2*l)+layoutMargin+layoutGap <= width {
 			return s
 		}
 	}
@@ -88,28 +90,46 @@ func cellCenter(i int, per, dim float64) float64 {
 
 func in(x, lo, size float64) bool { return x >= lo && x < lo+size }
 
-// buildViews projects the placements onto three grids. s is inches per column;
+// Y=0 is the driver's side (left-hand drive) and X=0 is the front of the cargo area.
+type views struct{ top, rear, driver, passenger view }
+
+// buildViews projects the placements onto four grids. s is inches per column;
 // rows cover 2s inches because terminal cells are about twice as tall as wide.
-func buildViews(sp Dims, placed []Placement, s float64) (top, side, rear view) {
+//
+//   - top: looking down with the front at the left, so the passenger side is up
+//   - driver / passenger: seen from outside the car, so the front is at the
+//     left of the driver view and at the right of the passenger view
+//   - rear: looking forward through the hatch, driver side at the left
+//
+// Where pieces overlap in a view, the one nearest the viewer is drawn.
+func buildViews(sp Dims, placed []Placement, s float64) views {
 	rowH := 2 * s
 	lenCols, widCols := cells(sp.L, s), cells(sp.W, s)
 	topRows, hgtRows := cells(sp.W, rowH), cells(sp.H, rowH)
-	// Row 0 is the ceiling, so the cell index up from the floor is hgtRows-1-r.
+	// Row 0 is the ceiling / passenger edge, so the index from the floor / driver edge is rows-1-r.
 	z := func(r int) float64 { return cellCenter(hgtRows-1-r, rowH, sp.H) }
 
-	top = fill(lenCols, topRows, placed,
-		func(c, r int) (float64, float64) { return cellCenter(c, s, sp.L), cellCenter(r, rowH, sp.W) },
+	inXZ := func(p Placement, x, zz float64) bool { return in(x, p.X, p.Box.L) && in(zz, p.Z, p.Box.H) }
+	var v views
+	v.top = fill(lenCols, topRows, placed,
+		func(c, r int) (float64, float64) {
+			return cellCenter(c, s, sp.L), cellCenter(topRows-1-r, rowH, sp.W)
+		},
 		func(p Placement, x, y float64) bool { return in(x, p.X, p.Box.L) && in(y, p.Y, p.Box.W) },
 		func(p Placement) float64 { return p.Z + p.Box.H }) // highest top is visible from above
-	side = fill(lenCols, hgtRows, placed,
+	v.driver = fill(lenCols, hgtRows, placed,
 		func(c, r int) (float64, float64) { return cellCenter(c, s, sp.L), z(r) },
-		func(p Placement, x, zz float64) bool { return in(x, p.X, p.Box.L) && in(zz, p.Z, p.Box.H) },
+		inXZ,
+		func(p Placement) float64 { return -p.Y }) // smallest Y is nearest the driver side
+	v.passenger = fill(lenCols, hgtRows, placed,
+		func(c, r int) (float64, float64) { return cellCenter(lenCols-1-c, s, sp.L), z(r) },
+		inXZ,
 		func(p Placement) float64 { return p.Y + p.Box.W })
-	rear = fill(widCols, hgtRows, placed,
+	v.rear = fill(widCols, hgtRows, placed,
 		func(c, r int) (float64, float64) { return cellCenter(c, s, sp.W), z(r) },
 		func(p Placement, y, zz float64) bool { return in(y, p.Y, p.Box.W) && in(zz, p.Z, p.Box.H) },
 		func(p Placement) float64 { return p.X + p.Box.L }) // nearest the hatch is visible from behind
-	return top, side, rear
+	return v
 }
 
 var layoutPalette = []lipgloss.Color{"1", "2", "3", "4", "5", "6", "9", "10", "11", "12", "13", "14"}
@@ -167,19 +187,29 @@ func renderLayout(l Load, p Packing, header string, width int) string {
 		b.WriteString(legend(l, p))
 	default:
 		s := chooseScale(l.Space, width)
-		top, side, rear := buildViews(l.Space, p.Placed, s)
+		v := buildViews(l.Space, p.Placed, s)
+		block := func(title string, vw view, caption string) string {
+			return titleStyle.Render(title) + "\n" + indent(vw.render(l)+"\n"+caption)
+		}
+		gap := strings.Repeat(" ", layoutGap)
+		row1 := lipgloss.JoinHorizontal(lipgloss.Top,
+			block("Top view", v.top, axis(v.top.cols, "front", "hatch")), gap,
+			block("Rear view", v.rear, axis(v.rear.cols, "driver", "passenger")))
+		row2 := lipgloss.JoinHorizontal(lipgloss.Top,
+			block("Driver side", v.driver, axis(v.driver.cols, "front", "hatch")), gap,
+			block("Passenger side", v.passenger, axis(v.passenger.cols, "hatch", "front")))
+		b.WriteString(row1 + "\n\n" + row2 + "\n\n")
 
-		b.WriteString(titleStyle.Render("Top view") + dimStyle.Render("  looking down") + "\n")
-		b.WriteString(indent(top.render(l)+"\n"+axis(top.cols, "front", "hatch")) + "\n\n")
-
-		sideBlock := titleStyle.Render("Side view") + "\n" + indent(side.render(l)+"\n"+axis(side.cols, "front", "hatch"))
-		rearBlock := titleStyle.Render("Rear view") + "\n" + rear.render(l) + "\n" + axis(rear.cols, "", "width")
-		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, sideBlock, strings.Repeat(" ", layoutGap), rearBlock) + "\n\n")
-
-		b.WriteString(dimStyle.Render(fmt.Sprintf(
-			"Cargo %s × %s × %s in. One column ≈ %.0f in, one row ≈ %.0f in. Side and rear: top row is the ceiling, bottom is the floor.",
+		b.WriteString(dimStyle.Render(fmt.Sprintf("Cargo %s × %s × %s in. One column ≈ %.0f in, one row ≈ %.0f in.",
 			fmtNum(l.Space.L), fmtNum(l.Space.W), fmtNum(l.Space.H), s, 2*s)) + "\n")
-		b.WriteString(dimStyle.Render("Pieces thinner than a cell may not show. The packing is a heuristic; it ignores weight.") + "\n\n")
+		for _, note := range []string{
+			"Top: passenger side up. Rear: looking forward. Sides: seen from outside.",
+			"Side and rear: top row is the ceiling. Left-hand drive assumed.",
+			"Thin pieces may not show. The packing is a heuristic and ignores weight.",
+		} {
+			b.WriteString(dimStyle.Render(note) + "\n")
+		}
+		b.WriteString("\n")
 		b.WriteString(legend(l, p))
 	}
 	b.WriteString("\n" + dimStyle.Render("Press any key to return.") + "\n")
