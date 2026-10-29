@@ -74,6 +74,7 @@ type options struct {
 	seatsDown bool
 	merge     bool
 	override  Dims
+	dolly     bool
 	storeDir  string // where saved loads live; empty disables saving
 }
 
@@ -92,6 +93,7 @@ func newModel(o options) model {
 	m.nameInput.Prompt = "Name: "
 	m.nameInput.CharLimit = 60
 	m.nameInput.Width = 30
+	m.load.Dolly = o.dolly
 	m.usePreset()
 	for _, f := range []struct {
 		v   float64
@@ -273,7 +275,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // refreshPack reruns the packing heuristic only when the load or space changed.
 // It is skipped when the cheap volume and size checks already fail.
 func (m *model) refreshPack() {
-	key := fmt.Sprint(m.load.Space, m.load.Sets)
+	key := fmt.Sprint(m.load.Space, m.load.Sets, m.load.Dolly)
 	if key == m.packKey {
 		return
 	}
@@ -343,6 +345,8 @@ func (m model) updateCommand(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		m.load.Sets = nil
 		m.sel = 0
+	case "D":
+		m.load.Dolly = !m.load.Dolly
 	case "w":
 		m.saveCurrent()
 	case "W":
@@ -484,7 +488,8 @@ func (m model) View() string {
 	if m.status != "" {
 		b.WriteString(okStyle.Render(m.status) + "\n")
 	}
-	fmt.Fprintf(&b, "%s\n%s\n\n", dimStyle.Render(m.loadLine()), dimStyle.Render("Merge identical sets: "+onOff(m.merge)))
+	fmt.Fprintf(&b, "%s\n%s\n\n", dimStyle.Render(m.loadLine()), dimStyle.Render(fmt.Sprintf("Merge identical sets: %s • Dolly (%s × %s × %s in): %s",
+		onOff(m.merge), fmtNum(Dolly.L), fmtNum(Dolly.W), fmtNum(Dolly.H), onOff(m.load.Dolly))))
 
 	b.WriteString(m.setsTable())
 	b.WriteString("\n")
@@ -493,6 +498,8 @@ func (m model) View() string {
 	b.WriteString(dimStyle.Render(m.help()) + "\n")
 	return b.String()
 }
+
+func capitalize(s string) string { return strings.ToUpper(s[:1]) + s[1:] }
 
 func onOff(v bool) string {
 	if v {
@@ -510,7 +517,7 @@ func joinInputs(group []textinput.Model) string {
 }
 
 func (m model) setsTable() string {
-	if len(m.load.Sets) == 0 {
+	if len(m.load.Sets) == 0 && !m.load.Dolly {
 		return dimStyle.Render("No item sets yet.") + "\n"
 	}
 	over := map[int]bool{}
@@ -531,7 +538,24 @@ func (m model) setsTable() string {
 		}
 		b.WriteString(line + "\n")
 	}
+	if m.load.Dolly {
+		d := Dolly
+		line := fmt.Sprintf("  %-3s %5d  %-22s %s", "–", d.Qty,
+			fmt.Sprintf("%s × %s × %s", fmtNum(d.L), fmtNum(d.W), fmtNum(d.H)), fmtVol(d.TotalVolume())+"  dolly")
+		if over[len(m.load.Sets)] {
+			line = badStyle.Render(line + "  ⚠ too big")
+		}
+		b.WriteString(line + "\n")
+	}
 	return b.String()
+}
+
+// entryName names an index into Load.All for messages.
+func (m model) entryName(i int) string {
+	if i >= len(m.load.Sets) {
+		return "the dolly"
+	}
+	return fmt.Sprintf("set #%d", i+1)
 }
 
 func (m model) summary() string {
@@ -557,7 +581,7 @@ func (m model) summary() string {
 			b.WriteString(badStyle.Render(fmt.Sprintf("❌ Over capacity by %s", fmtVol(-avail))) + "\n")
 		}
 		for _, i := range l.Oversized() {
-			b.WriteString(badStyle.Render(fmt.Sprintf("❌ Set #%d is too big for the cargo space", i+1)) + "\n")
+			b.WriteString(badStyle.Render(fmt.Sprintf("❌ %s is too big for the cargo space", capitalize(m.entryName(i)))) + "\n")
 		}
 	}
 	return b.String()
@@ -579,7 +603,7 @@ func (m model) packingLine() string {
 	var parts []string
 	for i, n := range p.Unplaced {
 		if n > 0 {
-			parts = append(parts, fmt.Sprintf("set #%d ×%d", i+1, n))
+			parts = append(parts, fmt.Sprintf("%s ×%d", m.entryName(i), n))
 		}
 	}
 	return badStyle.Render(fmt.Sprintf("⚠ Packing heuristic placed %d of %d pieces; couldn't place %s",
@@ -590,7 +614,7 @@ func (m model) packingLine() string {
 func (m model) help() string {
 	switch m.mode {
 	case modeCommand:
-		return "↑/↓ select • e edit set • d delete set • c clear • m merge on/off • r seats up/down • v vehicle • s custom cargo space • w save • W save as • o open • i/enter add • q quit"
+		return "↑/↓ select • e edit set • d delete set • c clear • m merge on/off • r seats up/down • v vehicle • s custom cargo space • D dolly on/off • w save • W save as • o open • i/enter add • q quit"
 	case modeSpace:
 		return "tab next field • enter apply • esc cancel • ctrl+c quit"
 	case modeSave:

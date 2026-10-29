@@ -118,3 +118,25 @@ func TestMergeDuplicates(t *testing.T) {
 		t.Errorf("Sets = %v", l.Sets)
 	}
 }
+
+func TestDollyCountsTowardUsedVolume(t *testing.T) {
+	l := Load{Space: testSpace, Sets: []ItemSet{{1, Dims{10, 10, 10}}}}
+	if got := l.Used(); got != 1000 {
+		t.Fatalf("Used without dolly = %v, want 1000", got)
+	}
+	l.Dolly = true
+	if got := l.Used(); got != 1000+48*24*6 {
+		t.Errorf("Used with dolly = %v, want %v", got, 1000+48*24*6)
+	}
+	if len(l.Sets) != 1 {
+		t.Error("including the dolly must not modify Sets")
+	}
+}
+
+func TestDollyTooBigForSpace(t *testing.T) {
+	l := Load{Space: Dims{40, 20, 10}, Dolly: true}
+	got := l.Oversized()
+	if len(got) != 1 || got[0] != len(l.Sets) || l.Fits() {
+		t.Errorf("Oversized=%v Fits=%v, want the dolly flagged and not fitting", got, l.Fits())
+	}
+}

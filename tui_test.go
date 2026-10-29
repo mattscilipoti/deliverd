@@ -158,3 +158,39 @@ func TestPackingFailureShownAsWarning(t *testing.T) {
 		}
 	}
 }
+
+func TestDollyToggle(t *testing.T) {
+	m := typeSet(newTestModel(true), "10", "10", "10", "1")
+	base := m.load.Used()
+	m = press(m, "esc", "D")
+	if !m.load.Dolly || m.load.Used() != base+Dolly.Volume() {
+		t.Fatalf("Dolly=%v Used=%v, want dolly added to used volume", m.load.Dolly, m.load.Used())
+	}
+	v := m.View()
+	for _, want := range []string{"Dolly (48 × 24 × 6 in): on", "dolly", "found a layout for all 2 pieces"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("view missing %q:\n%s", want, v)
+		}
+	}
+	m = press(m, "D")
+	if m.load.Dolly || m.load.Used() != base || !strings.Contains(m.View(), "Dolly (48 × 24 × 6 in): off") {
+		t.Errorf("Dolly=%v Used=%v, want it removed", m.load.Dolly, m.load.Used())
+	}
+}
+
+func TestDollyDoesNotAffectSetEditing(t *testing.T) {
+	m := newModel(options{seatsDown: true, merge: true, dolly: true})
+	m = typeSet(m, "10", "10", "10", "1")
+	m = press(m, "esc", "j", "j", "d") // selection can't move onto the dolly
+	if len(m.load.Sets) != 0 || !m.load.Dolly {
+		t.Errorf("Sets=%v Dolly=%v, want the set deleted and the dolly kept", m.load.Sets, m.load.Dolly)
+	}
+}
+
+func TestDollyTooBigMessage(t *testing.T) {
+	m := newModel(options{seatsDown: true, merge: true, dolly: true, override: Dims{L: 40, W: 20, H: 10}})
+	m = typeSet(m, "5", "5", "5", "1")
+	if !strings.Contains(m.View(), "The dolly is too big for the cargo space") {
+		t.Errorf("view missing the dolly message:\n%s", m.View())
+	}
+}

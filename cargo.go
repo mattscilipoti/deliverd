@@ -37,16 +37,29 @@ type ItemSet struct {
 
 func (s ItemSet) TotalVolume() float64 { return float64(s.Qty) * s.Volume() }
 
+// Dolly is optional equipment that rides in the car and takes up cargo space.
+var Dolly = ItemSet{Qty: 1, Dims: Dims{L: 48, W: 24, H: 6}}
+
 type Load struct {
 	Space Dims
 	Sets  []ItemSet
+	Dolly bool // include the dolly alongside Sets
+}
+
+// All is Sets followed by the dolly when it is included. The dolly is always
+// last, so an index equal to len(Sets) refers to it.
+func (l Load) All() []ItemSet {
+	if !l.Dolly {
+		return l.Sets
+	}
+	return append(append([]ItemSet(nil), l.Sets...), Dolly)
 }
 
 func (l Load) Capacity() float64 { return l.Space.Volume() }
 
 func (l Load) Used() float64 {
 	var total float64
-	for _, s := range l.Sets {
+	for _, s := range l.All() {
 		total += s.TotalVolume()
 	}
 	return total
@@ -55,10 +68,10 @@ func (l Load) Used() float64 {
 // Available is negative when the load exceeds the cargo volume.
 func (l Load) Available() float64 { return l.Capacity() - l.Used() }
 
-// Oversized returns the indexes of sets whose items cannot fit in the space in any orientation.
+// Oversized returns the indexes (into All) of sets whose items cannot fit in the space in any orientation.
 func (l Load) Oversized() []int {
 	var idx []int
-	for i, s := range l.Sets {
+	for i, s := range l.All() {
 		if !FitsInside(s.Dims, l.Space) {
 			idx = append(idx, i)
 		}

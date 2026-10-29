@@ -15,6 +15,7 @@ func main() {
 	flag.Float64Var(&o.override.H, "height", 0, "override cargo height in inches")
 	flag.BoolVar(&o.merge, "merge", true, "combine item sets with identical dimensions")
 	seats := flag.String("seats", "down", "rear seats: up or down")
+	flag.BoolVar(&o.dolly, "dolly", false, "include the 48x24x6 in dolly in the load")
 	dir := flag.String("dir", "", "directory for saved loads (default: user config dir)")
 	flag.Parse()
 

@@ -17,7 +17,7 @@ type Placement struct {
 
 type Packing struct {
 	Placed   []Placement
-	Unplaced []int // per set: pieces the heuristic could not place
+	Unplaced []int // per entry of Load.All: pieces the heuristic could not place
 	Total    int   // pieces across all sets
 	Skipped  bool  // too many pieces to try
 }
@@ -61,14 +61,15 @@ func footprint(d Dims) float64 {
 // best. It does not model weight or crushing, so pieces may rest on anything.
 // A failure means "not found", not "impossible".
 func (l Load) Pack() Packing {
+	all := l.All()
 	var pieces []piece
-	for i, s := range l.Sets {
+	for i, s := range all {
 		for q := 0; q < s.Qty; q++ {
 			pieces = append(pieces, piece{i, s.Dims})
 		}
 	}
 	if len(pieces) > maxPackPieces {
-		return Packing{Unplaced: make([]int, len(l.Sets)), Total: len(pieces), Skipped: true}
+		return Packing{Unplaced: make([]int, len(all)), Total: len(pieces), Skipped: true}
 	}
 
 	var best Packing
@@ -76,7 +77,7 @@ func (l Load) Pack() Packing {
 	for i, o := range packOrders {
 		sorted := append([]piece(nil), pieces...)
 		sort.SliceStable(sorted, func(a, b int) bool { return o.less(sorted[a].d, sorted[b].d) })
-		p := l.packInOrder(sorted)
+		p := l.packInOrder(sorted, len(all))
 		var vol float64
 		for _, pl := range p.Placed {
 			vol += pl.Box.Volume()
@@ -91,8 +92,8 @@ func (l Load) Pack() Packing {
 	return best
 }
 
-func (l Load) packInOrder(pieces []piece) Packing {
-	p := Packing{Unplaced: make([]int, len(l.Sets))}
+func (l Load) packInOrder(pieces []piece, entries int) Packing {
+	p := Packing{Unplaced: make([]int, entries)}
 	p.Total = len(pieces)
 
 	sp := l.Space
