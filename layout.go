@@ -202,7 +202,7 @@ func layoutHead(l Load, header string) string {
 		header + dimStyle.Render("  ·  Dolly: "+dollyText(l.Dolly))
 }
 
-const layoutFoot = "i image • D dolly (off/seats/items) • any other key returns"
+const layoutFoot = "s search • t search time • i image • D dolly • any other key returns"
 
 // composeViews lays the four views out in the given arrangement.
 func composeViews(l Load, v views, arr arrangement) string {
@@ -273,7 +273,7 @@ func renderLayout(l Load, p Packing, header string, width, height int, status st
 	case len(l.All()) == 0:
 		return head + "\nNothing to show yet. Add item sets first.\n" + stText + "\n"
 	case p.Skipped:
-		return head + fmt.Sprintf("\nPacking was skipped because there are more than %d pieces, so there is no layout to draw.\n", maxPackPieces) + stText + "\n"
+		return head + fmt.Sprintf("\nQuick packing was skipped because there are more than %d pieces. Press s to run the longer search, which handles up to %d.\n", maxPackPieces, maxSearchPieces) + stText + "\n"
 	case len(p.Placed) == 0:
 		return head + "\nThe packing heuristic couldn't place any pieces.\n" + legendBlock(l, p, width) + "\n" + stText + "\n"
 	}

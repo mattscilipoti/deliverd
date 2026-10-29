@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -65,6 +66,10 @@ type model struct {
 	width  int // terminal size from the last WindowSizeMsg; 0 until known
 	height int
 
+	search       searchState
+	searchBudget time.Duration // how long the s key searches
+	searchSeed   int64         // 0 picks a random seed; set by tests
+
 	imageDir   string                  // where exported layout images go
 	openImage  func(path string) error // opens an image in the OS viewer
 	layoutPack Packing                 // packing computed when the layout was opened
@@ -95,23 +100,27 @@ type options struct {
 	occupantsSet bool
 	storeDir     string // where saved loads live; empty disables saving
 	imageDir     string // where layout images are written; empty means the temp dir
+	searchBudget time.Duration
+	searchSeed   int64
 	// openImage replaces the OS image viewer launcher, for tests.
 	openImage func(path string) error
 }
 
 func newModel(o options) model {
 	m := model{
-		vehicle:    o.vehicle,
-		seatsDown:  o.seatsDown,
-		itemInputs: newInputs([]string{"L", "W", "H", "Wt", "Qty"}),
-		spcInputs:  newInputs([]string{"L", "W", "H"}),
-		occInputs:  newInputs([]string{"Limit lb", "Occupants lb"}),
-		merge:      o.merge,
-		editing:    -1,
-		store:      Store{Dir: o.storeDir},
-		imageDir:   o.imageDir,
-		openImage:  o.openImage,
-		savedKey:   setsKey(nil),
+		vehicle:      o.vehicle,
+		seatsDown:    o.seatsDown,
+		itemInputs:   newInputs([]string{"L", "W", "H", "Wt", "Qty"}),
+		spcInputs:    newInputs([]string{"L", "W", "H"}),
+		occInputs:    newInputs([]string{"Limit lb", "Occupants lb"}),
+		merge:        o.merge,
+		editing:      -1,
+		store:        Store{Dir: o.storeDir},
+		imageDir:     o.imageDir,
+		searchBudget: o.searchBudget,
+		searchSeed:   o.searchSeed,
+		openImage:    o.openImage,
+		savedKey:     setsKey(nil),
 	}
 	m.nameInput = textinput.New()
 	m.nameInput.Prompt = "Name: "
@@ -127,6 +136,9 @@ func newModel(o options) model {
 			*f.dst = f.v
 			m.custom = true
 		}
+	}
+	if m.searchBudget <= 0 {
+		m.searchBudget = defaultSearchBudget
 	}
 	m.load.Occupants = DefaultOccupantsLb
 	if o.occupantsSet {
@@ -373,6 +385,15 @@ func (m *model) refreshPack() {
 }
 
 func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if sm, ok := msg.(searchMsg); ok {
+		return m.handleSearch(sm)
+	}
+	if _, ok := msg.(searchTickMsg); ok {
+		if m.search.running {
+			return m, searchTick()
+		}
+		return m, nil
+	}
 	if om, ok := msg.(imageOpenedMsg); ok {
 		m.status = om.status()
 		return m, nil
@@ -560,7 +581,7 @@ func (m model) View() string {
 	case modeHelp:
 		return helpText()
 	case modeLayout:
-		return renderLayout(m.load, m.layoutPack, m.layoutHeader(), m.layoutWidth(), m.height, m.status)
+		return renderLayout(m.load, m.layoutPack, m.layoutHeader(), m.layoutWidth(), m.height, m.layoutStatus())
 	}
 	var b strings.Builder
 	sp := m.load.Space

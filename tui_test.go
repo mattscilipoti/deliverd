@@ -663,3 +663,154 @@ func TestLayoutStatusCountsAgainstHeight(t *testing.T) {
 		t.Errorf("status screen is %d lines, want it to fit in 23 and show the message", n)
 	}
 }
+
+func searchModel(t *testing.T, sets []ItemSet, budget time.Duration) model {
+	t.Helper()
+	m := newModel(options{seatsDown: true, merge: true, searchBudget: budget, searchSeed: 1})
+	m.load.Sets = sets
+	return press(m, "esc", "L")
+}
+
+// drainSearch feeds the search's messages back into the model until it finishes.
+func drainSearch(t *testing.T, m model) model {
+	t.Helper()
+	timeout := time.After(10 * time.Second)
+	for m.search.running {
+		select {
+		case msg := <-m.search.ch:
+			next, _ := m.Update(msg)
+			m = next.(model)
+		case <-timeout:
+			t.Fatal("the search did not finish")
+		}
+	}
+	return m
+}
+
+func TestSearchFromLayoutImprovesAndFinishes(t *testing.T) {
+	m := searchModel(t, sampleLoad().Sets, 5*time.Second)
+	before := len(m.layoutPack.Placed)
+	if m.layoutPack.AllPlaced() {
+		t.Fatal("setup: the quick packer should not place everything")
+	}
+	m, cmd := pressKey(m, "s")
+	if cmd == nil || !m.search.running || m.mode != modeLayout {
+		t.Fatalf("running=%v mode=%v, want a search started on the layout screen", m.search.running, m.mode)
+	}
+	if v := m.View(); !strings.Contains(flat(v), "Searching for a better layout") || !strings.Contains(v, "any key stops") {
+		t.Errorf("view should show the search in progress:\n%s", v)
+	}
+	m = drainSearch(t, m)
+	if !m.layoutPack.AllPlaced() || len(m.layoutPack.Placed) <= before {
+		t.Fatalf("placed %d of %d (was %d), want everything placed", len(m.layoutPack.Placed), m.layoutPack.Total, before)
+	}
+	if !strings.Contains(m.status, "Search found a layout for all 21 pieces") {
+		t.Errorf("status = %q", m.status)
+	}
+	v := m.View()
+	if strings.Contains(v, "not placed") || !strings.Contains(flat(v), "Search found a layout") || m.mode != modeLayout {
+		t.Errorf("the layout should now show everything placed:\n%s", v)
+	}
+	assertValid(t, m.load, m.layoutPack)
+}
+
+func TestAnyKeyStopsTheSearch(t *testing.T) {
+	cubes := []ItemSet{{Qty: 120, Dims: Dims{6, 6, 6}}} // too much for the cargo area, so it never finishes early
+	m := newModel(options{seatsDown: true, merge: true, searchBudget: time.Minute, searchSeed: 1, override: Dims{20, 20, 20}})
+	m.load.Sets = cubes
+	m = press(m, "esc", "L")
+	m, _ = pressKey(m, "s")
+	if !m.search.running {
+		t.Fatal("search did not start")
+	}
+	m, cmd := pressKey(m, "x") // would normally return to command mode
+	if m.mode != modeLayout || !m.search.stopped || cmd != nil || !strings.Contains(m.layoutStatus(), "Stopping") {
+		t.Fatalf("mode=%v stopped=%v status=%q; a key should stop the search and stay on the layout", m.mode, m.search.stopped, m.layoutStatus())
+	}
+	begin := time.Now()
+	m = drainSearch(t, m)
+	if time.Since(begin) > 5*time.Second || !strings.HasPrefix(m.status, "Stopped. ") {
+		t.Errorf("took %v, status = %q, want a quick stop that says so", time.Since(begin), m.status)
+	}
+	if len(m.layoutPack.Placed) == 0 {
+		t.Error("stopping must keep the best layout found")
+	}
+	if m, _ = pressKey(m, "x"); m.mode != modeCommand {
+		t.Errorf("mode = %v, want the next key to return to command mode", m.mode)
+	}
+}
+
+func TestSearchWhenNothingToImprove(t *testing.T) {
+	easy := []ItemSet{{Qty: 2, Dims: Dims{10, 10, 10}}}
+	m, cmd := pressKey(searchModel(t, easy, time.Second), "s")
+	if cmd != nil || m.search.running || !strings.Contains(m.status, "already fits") {
+		t.Errorf("running=%v status=%q, want no search for a load that already fits", m.search.running, m.status)
+	}
+	m, cmd = pressKey(searchModel(t, nil, time.Second), "s")
+	if cmd != nil || !strings.Contains(m.status, "Nothing to search") {
+		t.Errorf("status=%q", m.status)
+	}
+	huge := []ItemSet{{Qty: maxSearchPieces + 1, Dims: Dims{1, 1, 1}}}
+	m, cmd = pressKey(searchModel(t, huge, time.Second), "s")
+	if cmd != nil || !strings.Contains(m.status, "Too many pieces to search") {
+		t.Errorf("status=%q", m.status)
+	}
+}
+
+func TestSearchReportsWhenNoBetterLayoutFound(t *testing.T) {
+	// 3 pieces of 6 in cannot all fit in a 10 in cube, however they are arranged.
+	m := newModel(options{seatsDown: true, merge: true, searchBudget: time.Second, searchSeed: 1, override: Dims{10, 10, 10}})
+	m.load.Sets = []ItemSet{{Qty: 3, Dims: Dims{6, 6, 6}}}
+	m = press(m, "esc", "L")
+	m.searchBudget = 300 * time.Millisecond
+	m, _ = pressKey(m, "s")
+	m = drainSearch(t, m)
+	if !strings.Contains(m.status, "No better layout found: still 1 of 3 placed") {
+		t.Errorf("status = %q", m.status)
+	}
+}
+
+func TestSearchTimeCycles(t *testing.T) {
+	m := searchModel(t, sampleLoad().Sets, 0) // 0 selects the 10s default
+	if m.searchBudget != defaultSearchBudget {
+		t.Fatalf("budget = %v, want the default", m.searchBudget)
+	}
+	var seen []time.Duration
+	for i := 0; i < 5; i++ {
+		m, _ = pressKey(m, "t")
+		seen = append(seen, m.searchBudget)
+	}
+	want := []time.Duration{15 * time.Second, 30 * time.Second, 60 * time.Second, 5 * time.Second, 15 * time.Second}
+	for i := range want {
+		if seen[i] != want[i] {
+			t.Errorf("press %d: budget = %v, want %v", i+1, seen[i], want[i])
+		}
+	}
+	if !strings.Contains(m.status, "Search time: 15.0s") {
+		t.Errorf("status = %q", m.status)
+	}
+}
+
+func TestSearchHandlesLoadsTheQuickPackerSkips(t *testing.T) {
+	m := searchModel(t, []ItemSet{{Qty: 200, Dims: Dims{4, 3, 2}}}, 300*time.Millisecond)
+	if !m.layoutPack.Skipped || !strings.Contains(flat(m.View()), "Press s to run the longer search") {
+		t.Fatalf("the layout should offer the search when quick packing is skipped:\n%s", m.View())
+	}
+	m, _ = pressKey(m, "s")
+	m = drainSearch(t, m)
+	if m.layoutPack.Skipped || len(m.layoutPack.Placed) == 0 {
+		t.Errorf("Skipped=%v placed=%d, want the search to lay the pieces out", m.layoutPack.Skipped, len(m.layoutPack.Placed))
+	}
+}
+
+func TestSearchTickOnlyWhileRunning(t *testing.T) {
+	m := searchModel(t, sampleLoad().Sets, time.Second)
+	if _, cmd := m.Update(searchTickMsg{}); cmd != nil {
+		t.Error("an idle model should not keep ticking")
+	}
+	m, _ = pressKey(m, "s")
+	if _, cmd := m.Update(searchTickMsg{}); cmd == nil {
+		t.Error("a running search should keep ticking so the elapsed time updates")
+	}
+	drainSearch(t, m)
+}

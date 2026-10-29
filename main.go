@@ -44,6 +44,7 @@ func main() {
 	flag.Float64Var(&o.payload, "payload", 0, "override the combined occupant + cargo weight limit in lb (default: the vehicle's)")
 	occupants := flag.Float64("occupants", DefaultOccupantsLb, "weight of the people in the car in lb")
 	flag.StringVar(&o.imageDir, "image-dir", "", "directory for exported layout images (default: temp dir)")
+	flag.DurationVar(&o.searchBudget, "search-time", defaultSearchBudget, "how long the layout screen's s search runs")
 	version := flag.Bool("version", false, "print the build time and exit")
 	dir := flag.String("dir", "", "directory for saved loads (default: user config dir)")
 	flag.Parse()
@@ -53,6 +54,10 @@ func main() {
 			o.occupants, o.occupantsSet = *occupants, true
 		}
 	})
+	if o.searchBudget < time.Second || o.searchBudget > 10*time.Minute {
+		fmt.Fprintln(os.Stderr, "-search-time must be between 1s and 10m")
+		os.Exit(2)
+	}
 	if o.payload < 0 || *occupants < 0 {
 		fmt.Fprintln(os.Stderr, "-payload and -occupants must not be negative")
 		os.Exit(2)

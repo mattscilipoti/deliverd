@@ -41,6 +41,7 @@ var helpSections = []struct {
 		"s                 type custom cargo dimensions",
 		"p                 set the weight limit and occupant weight (lb)",
 		"L                 show the packing layout (D there cycles the dolly,",
+		"                  s searches longer for a better layout, t sets how long,",
 		"                  i saves it as an SVG image and opens it in your viewer)",
 		"D                 dolly: off → behind seats (not counted) → with items (48 × 24 × 6 in)",
 		"q                 quit",
@@ -63,6 +64,7 @@ var helpSections = []struct {
 		"-merge=false      keep identical sets separate",
 		"-dir PATH         where saved loads live (default: your config dir)",
 		"-image-dir PATH   where layout images are saved (default: temp dir)",
+		"-search-time DUR  how long the layout's s search runs (default 10s)",
 		"-version          print the build time and exit",
 	}},
 }
@@ -114,9 +116,23 @@ func (m model) layoutHeader() string {
 	return fmt.Sprintf("%s (%s × %s × %s in)", name, fmtNum(c.L), fmtNum(c.W), fmtNum(c.H))
 }
 
-// updateLayout lets D cycle the dolly and i export an image; any other key returns.
+// updateLayout lets s search for a better layout, t set the search time, D cycle
+// the dolly and i export an image; any other key returns. While a search runs,
+// any key stops it instead.
 func (m model) updateLayout(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.search.running { // any key stops a search; it keeps the best layout found
+		if !m.search.stopped {
+			m.stopSearch()
+		}
+		return m, nil
+	}
 	switch key.String() {
+	case "s":
+		return m, m.startSearch()
+	case "t":
+		m.searchBudget = nextBudget(m.searchBudget)
+		m.status = "Search time: " + fmtSeconds(m.searchBudget)
+		return m, nil
 	case "D":
 		m.load.Dolly = m.load.Dolly.Next()
 		m.layoutPack = m.load.Pack()
