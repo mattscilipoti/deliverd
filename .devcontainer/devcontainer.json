@@ -12,14 +12,18 @@
   },
   "remoteUser": "vscode",
   "containerEnv": {
-    "GOFLAGS": "-buildvcs=false"
+    "GOFLAGS": "-buildvcs=false",
+    // Keep all Claude Code state (including ~/.claude.json) inside the persisted volume below.
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
   },
   "mounts": [
     // Persist module and build caches across container rebuilds.
     "source=deliverd-go-mod,target=/go/pkg,type=volume",
-    "source=deliverd-go-cache,target=/home/vscode/.cache/go-build,type=volume"
+    "source=deliverd-go-cache,target=/home/vscode/.cache/go-build,type=volume",
+    // Persist Claude Code login and settings across container rebuilds.
+    "source=deliverd-claude-config,target=/home/vscode/.claude,type=volume"
   ],
-  "postCreateCommand": "sudo chown -R vscode:vscode /go /home/vscode/.cache && go version && go install golang.org/x/tools/gopls@latest && go install github.com/go-delve/delve/cmd/dlv@latest",
+  "postCreateCommand": "sudo chown -R vscode:vscode /go /home/vscode/.cache /home/vscode/.claude && go version && go install golang.org/x/tools/gopls@latest && go install github.com/go-delve/delve/cmd/dlv@latest",
   "customizations": {
     "vscode": {
       "extensions": [
