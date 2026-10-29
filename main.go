@@ -16,7 +16,7 @@ var buildTime string
 // buildLabel is shown on the main screen and in help, in the local time zone.
 func buildLabel() string { return buildLabelIn(buildTime, time.Local) }
 
-// buildLabelIn formats raw in loc, adding the UTC time when loc isn't UTC.
+// buildLabelIn formats raw in loc, adding the UTC time of day when loc isn't UTC.
 // A value that isn't RFC 3339 is shown as is.
 func buildLabelIn(raw string, loc *time.Location) string {
 	if raw == "" {
@@ -30,7 +30,7 @@ func buildLabelIn(raw string, loc *time.Location) string {
 	if _, offset := local.Zone(); offset == 0 {
 		return "built " + t.UTC().Format("2006-01-02 15:04 UTC")
 	}
-	return "built " + local.Format("2006-01-02 15:04 MST") + " (" + t.UTC().Format("2006-01-02 15:04 UTC") + ")"
+	return "built " + local.Format("2006-01-02 15:04 MST") + " (" + t.UTC().Format("15:04 UTC") + ")"
 }
 
 func main() {

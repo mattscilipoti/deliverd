@@ -332,8 +332,8 @@ func TestBuildLabelLocalTimeZone(t *testing.T) {
 		loc  *time.Location
 		want string
 	}{
-		{"east coast", raw, edt, "built 2026-10-29 10:10 EDT (2026-10-29 14:10 UTC)"},
-		{"half-hour zone crossing midnight", "2026-10-29T20:00:00Z", ist, "built 2026-10-30 01:30 IST (2026-10-29 20:00 UTC)"},
+		{"east coast", raw, edt, "built 2026-10-29 10:10 EDT (14:10 UTC)"},
+		{"half-hour zone crossing midnight", "2026-10-29T20:00:00Z", ist, "built 2026-10-30 01:30 IST (20:00 UTC)"},
 		{"UTC machine", raw, time.UTC, "built 2026-10-29 14:10 UTC"},
 		{"not RFC 3339", "last Tuesday", edt, "built last Tuesday"},
 		{"unstamped", "", edt, "dev build (not stamped)"},
