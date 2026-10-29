@@ -2,6 +2,9 @@ package main
 
 import "testing"
 
+// testSpace is an arbitrary roomy box so the tests don't depend on vehicle data.
+var testSpace = Dims{L: 182, W: 70, H: 63}
+
 func TestFitsInside(t *testing.T) {
 	tests := []struct {
 		name string
@@ -17,7 +20,7 @@ func TestFitsInside(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := FitsInside(tt.item, DefaultSpace); got != tt.want {
+			if got := FitsInside(tt.item, testSpace); got != tt.want {
 				t.Errorf("FitsInside(%v) = %v, want %v", tt.item, got, tt.want)
 			}
 		})
@@ -25,7 +28,7 @@ func TestFitsInside(t *testing.T) {
 }
 
 func TestLoadVolumes(t *testing.T) {
-	l := Load{Space: DefaultSpace, Sets: []ItemSet{{Qty: 2, Dims: Dims{40, 30, 20}}}}
+	l := Load{Space: testSpace, Sets: []ItemSet{{Qty: 2, Dims: Dims{40, 30, 20}}}}
 	if got := l.Capacity(); got != 802620 {
 		t.Errorf("Capacity = %v, want 802620", got)
 	}
@@ -41,14 +44,14 @@ func TestLoadVolumes(t *testing.T) {
 }
 
 func TestEmptyLoad(t *testing.T) {
-	l := Load{Space: DefaultSpace}
+	l := Load{Space: testSpace}
 	if l.Used() != 0 || l.Available() != l.Capacity() || !l.Fits() {
 		t.Errorf("empty load: used=%v available=%v fits=%v", l.Used(), l.Available(), l.Fits())
 	}
 }
 
 func TestOverCapacity(t *testing.T) {
-	l := Load{Space: DefaultSpace, Sets: []ItemSet{{Qty: 100, Dims: Dims{50, 50, 50}}}}
+	l := Load{Space: testSpace, Sets: []ItemSet{{Qty: 100, Dims: Dims{50, 50, 50}}}}
 	if l.Available() >= 0 {
 		t.Errorf("Available = %v, want negative", l.Available())
 	}
@@ -61,7 +64,7 @@ func TestOverCapacity(t *testing.T) {
 }
 
 func TestOversizedItem(t *testing.T) {
-	l := Load{Space: DefaultSpace, Sets: []ItemSet{
+	l := Load{Space: testSpace, Sets: []ItemSet{
 		{Qty: 1, Dims: Dims{10, 10, 10}},
 		{Qty: 1, Dims: Dims{200, 10, 10}},
 	}}
@@ -75,7 +78,7 @@ func TestOversizedItem(t *testing.T) {
 }
 
 func TestAddMerge(t *testing.T) {
-	l := Load{Space: DefaultSpace}
+	l := Load{Space: testSpace}
 	l.Add(ItemSet{2, Dims{10, 10, 10}}, true)
 	l.Add(ItemSet{1, Dims{20, 10, 10}}, true)
 	if i := l.Add(ItemSet{3, Dims{10, 10, 10}}, true); i != 0 {
@@ -87,7 +90,7 @@ func TestAddMerge(t *testing.T) {
 }
 
 func TestAddNoMerge(t *testing.T) {
-	l := Load{Space: DefaultSpace}
+	l := Load{Space: testSpace}
 	l.Add(ItemSet{2, Dims{10, 10, 10}}, false)
 	l.Add(ItemSet{3, Dims{10, 10, 10}}, false)
 	if len(l.Sets) != 2 {
@@ -96,7 +99,7 @@ func TestAddNoMerge(t *testing.T) {
 }
 
 func TestReplaceMergesIntoDuplicate(t *testing.T) {
-	l := Load{Space: DefaultSpace, Sets: []ItemSet{
+	l := Load{Space: testSpace, Sets: []ItemSet{
 		{2, Dims{10, 10, 10}},
 		{1, Dims{20, 10, 10}},
 	}}

@@ -34,6 +34,9 @@ type model struct {
 	focus      int
 	err        error
 	merge      bool // combine sets with identical dimensions
+	vehicle    int  // index into Vehicles
+	seatsDown  bool
+	custom     bool // cargo space was overridden by hand or by flags
 	sel        int  // selected set in command mode
 	editing    int  // index of the set being edited, or -1
 }
@@ -50,17 +53,42 @@ func newInputs(labels []string) []textinput.Model {
 	return in
 }
 
-func newModel(space Dims, merge bool) model {
+// options are the startup settings. Zero override fields keep the vehicle preset.
+type options struct {
+	vehicle   int
+	seatsDown bool
+	merge     bool
+	override  Dims
+}
+
+func newModel(o options) model {
 	m := model{
-		load:       Load{Space: space},
+		vehicle:    o.vehicle,
+		seatsDown:  o.seatsDown,
 		itemInputs: newInputs([]string{"L", "W", "H", "Qty"}),
 		spcInputs:  newInputs([]string{"L", "W", "H"}),
-		merge:      merge,
+		merge:      o.merge,
 		editing:    -1,
+	}
+	m.usePreset()
+	for _, f := range []struct {
+		v   float64
+		dst *float64
+	}{{o.override.L, &m.load.Space.L}, {o.override.W, &m.load.Space.W}, {o.override.H, &m.load.Space.H}} {
+		if f.v > 0 {
+			*f.dst = f.v
+			m.custom = true
+		}
 	}
 	m.itemInputs[3].Placeholder = "1"
 	m.setFocus(m.itemInputs, 0)
 	return m
+}
+
+// usePreset loads the selected vehicle's cargo box for the current seat configuration.
+func (m *model) usePreset() {
+	m.load.Space = Vehicles[m.vehicle].Cargo(m.seatsDown).Dims
+	m.custom = false
 }
 
 func (m model) Init() tea.Cmd { return textinput.Blink }
@@ -190,6 +218,7 @@ func (m *model) applySpace() error {
 		return err
 	}
 	m.load.Space = d
+	m.custom = true
 	return nil
 }
 
@@ -259,6 +288,12 @@ func (m model) updateCommand(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.sel = 0
 	case "s":
 		m.enterSpaceMode()
+	case "v":
+		m.vehicle = (m.vehicle + 1) % len(Vehicles)
+		m.usePreset()
+	case "r":
+		m.seatsDown = !m.seatsDown
+		m.usePreset()
 	case "m":
 		m.merge = !m.merge
 		if m.merge {
@@ -347,8 +382,20 @@ func (m model) View() string {
 	sp := m.load.Space
 
 	b.WriteString(titleStyle.Render("deliverd — will it fit?") + "\n")
-	fmt.Fprintf(&b, "Cargo space: %s × %s × %s in  =  %s\n\n",
-		fmtNum(sp.L), fmtNum(sp.W), fmtNum(sp.H), fmtVol(m.load.Capacity()))
+	veh := Vehicles[m.vehicle]
+	fmt.Fprintf(&b, "Vehicle: %s (%d of %d) — %s\n", veh.Name, m.vehicle+1, len(Vehicles), seatsLabel(m.seatsDown))
+	label := "Cargo space"
+	if m.custom {
+		label = "Cargo space (custom override)"
+	} else if veh.Cargo(m.seatsDown).Estimated {
+		label = "Cargo space (estimated)"
+	}
+	fmt.Fprintf(&b, "%s: %s × %s × %s in  =  %s\n",
+		label, fmtNum(sp.L), fmtNum(sp.W), fmtNum(sp.H), fmtVol(m.load.Capacity()))
+	if !m.custom {
+		b.WriteString(dimStyle.Render(veh.describe(m.seatsDown)) + "\n")
+	}
+	b.WriteString("\n")
 
 	if m.mode == modeSpace {
 		b.WriteString("Edit cargo space (inches):\n")
@@ -445,7 +492,7 @@ func (m model) summary() string {
 func (m model) help() string {
 	switch m.mode {
 	case modeCommand:
-		return "↑/↓ select • e edit set • d delete set • c clear • m merge on/off • s cargo space • i/enter add • q quit"
+		return "↑/↓ select • e edit set • d delete set • c clear • m merge on/off • r seats up/down • v vehicle • s custom cargo space • i/enter add • q quit"
 	case modeSpace:
 		return "tab next field • enter apply • esc cancel • ctrl+c quit"
 	}

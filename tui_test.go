@@ -6,6 +6,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+func newTestModel(merge bool) model {
+	return newModel(options{seatsDown: true, merge: merge})
+}
+
 func press(m model, keys ...string) model {
 	for _, k := range keys {
 		var msg tea.KeyMsg
@@ -35,7 +39,7 @@ func typeSet(m model, l, w, h, qty string) model {
 }
 
 func TestEmptyQtyDefaultsToOne(t *testing.T) {
-	m := typeSet(newModel(DefaultSpace, true), "10", "20", "30", "")
+	m := typeSet(newTestModel(true), "10", "20", "30", "")
 	if len(m.load.Sets) != 1 || m.load.Sets[0].Qty != 1 {
 		t.Fatalf("Sets = %v, want one set with qty 1", m.load.Sets)
 	}
@@ -45,7 +49,7 @@ func TestEmptyQtyDefaultsToOne(t *testing.T) {
 }
 
 func TestQtyIsLastField(t *testing.T) {
-	m := typeSet(newModel(DefaultSpace, true), "10", "20", "30", "4")
+	m := typeSet(newTestModel(true), "10", "20", "30", "4")
 	want := ItemSet{Qty: 4, Dims: Dims{10, 20, 30}}
 	if len(m.load.Sets) != 1 || m.load.Sets[0] != want {
 		t.Fatalf("Sets = %v, want [%v]", m.load.Sets, want)
@@ -53,14 +57,14 @@ func TestQtyIsLastField(t *testing.T) {
 }
 
 func TestInvalidQtyRejected(t *testing.T) {
-	m := typeSet(newModel(DefaultSpace, true), "10", "20", "30", "x")
+	m := typeSet(newTestModel(true), "10", "20", "30", "x")
 	if m.err == nil || len(m.load.Sets) != 0 {
 		t.Errorf("err=%v sets=%v, want an error and no sets", m.err, m.load.Sets)
 	}
 }
 
 func TestMergeOnCombinesQuantities(t *testing.T) {
-	m := newModel(DefaultSpace, true)
+	m := newTestModel(true)
 	m = typeSet(m, "10", "10", "10", "2")
 	m = typeSet(m, "10", "10", "10", "3")
 	if len(m.load.Sets) != 1 || m.load.Sets[0].Qty != 5 {
@@ -69,7 +73,7 @@ func TestMergeOnCombinesQuantities(t *testing.T) {
 }
 
 func TestMergeOffKeepsSeparate(t *testing.T) {
-	m := newModel(DefaultSpace, false)
+	m := newTestModel(false)
 	m = typeSet(m, "10", "10", "10", "2")
 	m = typeSet(m, "10", "10", "10", "3")
 	if len(m.load.Sets) != 2 {
@@ -83,7 +87,7 @@ func TestMergeOffKeepsSeparate(t *testing.T) {
 }
 
 func TestEditExistingSet(t *testing.T) {
-	m := newModel(DefaultSpace, true)
+	m := newTestModel(true)
 	m = typeSet(m, "10", "10", "10", "2")
 	m = typeSet(m, "20", "20", "20", "1")
 	// Select the first set and edit it.
@@ -107,7 +111,7 @@ func TestEditExistingSet(t *testing.T) {
 }
 
 func TestEditCancelLeavesSetUnchanged(t *testing.T) {
-	m := typeSet(newModel(DefaultSpace, true), "10", "10", "10", "2")
+	m := typeSet(newTestModel(true), "10", "10", "10", "2")
 	m = press(m, "esc", "e", "esc")
 	if m.load.Sets[0].Qty != 2 || m.editing != -1 || m.mode != modeCommand {
 		t.Errorf("Sets=%v editing=%d mode=%v", m.load.Sets, m.editing, m.mode)
@@ -115,7 +119,7 @@ func TestEditCancelLeavesSetUnchanged(t *testing.T) {
 }
 
 func TestDeleteSelected(t *testing.T) {
-	m := newModel(DefaultSpace, true)
+	m := newTestModel(true)
 	m = typeSet(m, "1", "1", "1", "")
 	m = typeSet(m, "2", "2", "2", "")
 	m = typeSet(m, "3", "3", "3", "")

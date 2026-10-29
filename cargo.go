@@ -2,9 +2,6 @@ package main
 
 import "sort"
 
-// Default cargo space for a Toyota Prius V, in inches.
-var DefaultSpace = Dims{L: 182, W: 70, H: 63}
-
 const cubicInchesPerCubicFoot = 1728
 
 type Dims struct{ L, W, H float64 }

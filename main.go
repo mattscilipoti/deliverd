@@ -9,19 +9,28 @@ import (
 )
 
 func main() {
-	space := DefaultSpace
-	flag.Float64Var(&space.L, "length", space.L, "cargo length in inches")
-	flag.Float64Var(&space.W, "width", space.W, "cargo width in inches")
-	flag.Float64Var(&space.H, "height", space.H, "cargo height in inches")
-	merge := flag.Bool("merge", true, "combine item sets with identical dimensions")
+	var o options
+	flag.Float64Var(&o.override.L, "length", 0, "override cargo length in inches")
+	flag.Float64Var(&o.override.W, "width", 0, "override cargo width in inches")
+	flag.Float64Var(&o.override.H, "height", 0, "override cargo height in inches")
+	flag.BoolVar(&o.merge, "merge", true, "combine item sets with identical dimensions")
+	seats := flag.String("seats", "down", "rear seats: up or down")
 	flag.Parse()
 
-	if space.L <= 0 || space.W <= 0 || space.H <= 0 {
+	if o.override.L < 0 || o.override.W < 0 || o.override.H < 0 {
 		fmt.Fprintln(os.Stderr, "cargo dimensions must be positive")
 		os.Exit(2)
 	}
+	switch *seats {
+	case "up":
+	case "down":
+		o.seatsDown = true
+	default:
+		fmt.Fprintln(os.Stderr, `-seats must be "up" or "down"`)
+		os.Exit(2)
+	}
 
-	if _, err := tea.NewProgram(newModel(space, *merge)).Run(); err != nil {
+	if _, err := tea.NewProgram(newModel(o)).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
