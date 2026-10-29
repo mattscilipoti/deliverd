@@ -2,7 +2,12 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -35,7 +40,8 @@ var helpSections = []struct {
 		"v                 next vehicle",
 		"s                 type custom cargo dimensions",
 		"p                 set the weight limit and occupant weight (lb)",
-		"L                 show the packing layout (D there cycles the dolly)",
+		"L                 show the packing layout (D there cycles the dolly,",
+		"                  i saves it as an SVG image and opens it in your viewer)",
 		"D                 dolly: off → behind seats (not counted) → with items (48 × 24 × 6 in)",
 		"q                 quit",
 	}},
@@ -56,6 +62,7 @@ var helpSections = []struct {
 		"-occupants LB     occupant weight (default 175)",
 		"-merge=false      keep identical sets separate",
 		"-dir PATH         where saved loads live (default: your config dir)",
+		"-image-dir PATH   where layout images are saved (default: temp dir)",
 		"-version          print the build time and exit",
 	}},
 }
@@ -107,12 +114,85 @@ func (m model) layoutHeader() string {
 	return fmt.Sprintf("%s (%s × %s × %s in)", name, fmtNum(c.L), fmtNum(c.W), fmtNum(c.H))
 }
 
-// updateLayout lets D cycle the dolly and redraws; any other key returns.
+// updateLayout lets D cycle the dolly and i export an image; any other key returns.
 func (m model) updateLayout(key tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if key.String() == "D" {
+	switch key.String() {
+	case "D":
 		m.load.Dolly = m.load.Dolly.Next()
 		m.layoutPack = m.load.Pack()
 		return m, nil
+	case "i":
+		return m.exportImage()
 	}
 	return m.updateHelp(key)
+}
+
+// imageOpenedMsg reports the result of launching the image viewer.
+type imageOpenedMsg struct {
+	path string
+	err  error
+}
+
+func (o imageOpenedMsg) status() string {
+	if o.err != nil {
+		return fmt.Sprintf("Saved %s, but couldn't open an image viewer (%v). Open the file yourself.", o.path, o.err)
+	}
+	return "Saved and opened " + o.path
+}
+
+// exportImage writes the current layout as an SVG and opens it in the OS viewer.
+// The viewer is launched in a command so the screen doesn't wait on it.
+func (m model) exportImage() (tea.Model, tea.Cmd) {
+	if len(m.layoutPack.Placed) == 0 {
+		m.status = "Nothing to draw yet: no pieces were placed."
+		return m, nil
+	}
+	dir := m.imageDir
+	if dir == "" {
+		dir = os.TempDir()
+	}
+	now := time.Now()
+	path := filepath.Join(dir, "deliverd-layout-"+now.Format("20060102-150405")+".svg")
+	stamp := "Exported " + now.Format("2006-01-02 15:04:05 MST") + " · deliverd " + buildLabel()
+	svg := renderSVG(m.load, m.layoutPack, m.layoutHeader(), stamp)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		m.status = fmt.Sprintf("Couldn't save the image: %v", err)
+		return m, nil
+	}
+	if err := os.WriteFile(path, []byte(svg), 0o644); err != nil {
+		m.status = fmt.Sprintf("Couldn't save the image: %v", err)
+		return m, nil
+	}
+	m.status = "Saved " + path + " — opening it…"
+	open := m.openImage
+	if open == nil {
+		open = osOpen
+	}
+	return m, func() tea.Msg { return imageOpenedMsg{path, open(path)} }
+}
+
+// osOpen opens path with the desktop's default viewer. A viewer that fails
+// right away (for example xdg-open with no handler) is reported; one that is
+// still running after a moment is assumed to have opened.
+func osOpen(path string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", path)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
+	default:
+		cmd = exec.Command("xdg-open", path)
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(2 * time.Second):
+		return nil
+	}
 }

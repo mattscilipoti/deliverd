@@ -43,6 +43,7 @@ func main() {
 	dollyFlag := flag.String("dolly", "off", `dolly: "off", "seats" (stowed behind the seats, not counted) or "items" (packed with the items)`)
 	flag.Float64Var(&o.payload, "payload", 0, "override the combined occupant + cargo weight limit in lb (default: the vehicle's)")
 	occupants := flag.Float64("occupants", DefaultOccupantsLb, "weight of the people in the car in lb")
+	flag.StringVar(&o.imageDir, "image-dir", "", "directory for exported layout images (default: temp dir)")
 	version := flag.Bool("version", false, "print the build time and exit")
 	dir := flag.String("dir", "", "directory for saved loads (default: user config dir)")
 	flag.Parse()

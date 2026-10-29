@@ -111,7 +111,7 @@ func TestLabels(t *testing.T) {
 
 func TestRenderLayoutLegendAndContent(t *testing.T) {
 	l := Load{Space: Dims{60, 24, 12}, Dolly: DollyWithItems, Sets: []ItemSet{{Qty: 2, Dims: Dims{10, 10, 6}}, {Qty: 1, Dims: Dims{100, 5, 5}}}}
-	out := renderLayout(l, l.Pack(), "Test car", 80, 0)
+	out := renderLayout(l, l.Pack(), "Test car", 80, 0, "")
 	for _, want := range []string{
 		"Top view", "Rear view", "Driver side", "Passenger side", "front", "hatch", "driver", "passenger", "Test car",
 		"A  set #1", "placed 2 of 2", "=  dolly", "B  set #2", "1 not placed", "any other key returns", "Dolly: with items (48 × 24 × 6 in, packed to fit)",
@@ -129,11 +129,11 @@ func TestRenderLayoutLegendAndContent(t *testing.T) {
 
 func TestRenderLayoutEmptyAndSkipped(t *testing.T) {
 	empty := Load{Space: Dims{10, 10, 10}}
-	if out := renderLayout(empty, empty.Pack(), "", 80, 0); !strings.Contains(out, "Nothing to show") {
+	if out := renderLayout(empty, empty.Pack(), "", 80, 0, ""); !strings.Contains(out, "Nothing to show") {
 		t.Errorf("empty layout:\n%s", out)
 	}
 	big := Load{Space: Dims{100, 100, 100}, Sets: []ItemSet{{Qty: maxPackPieces + 1, Dims: Dims{1, 1, 1}}}}
-	if out := renderLayout(big, big.Pack(), "", 80, 0); !strings.Contains(out, "skipped") {
+	if out := renderLayout(big, big.Pack(), "", 80, 0, ""); !strings.Contains(out, "skipped") {
 		t.Errorf("skipped layout:\n%s", out)
 	}
 }
@@ -186,7 +186,7 @@ func TestLayoutNeverExceedsWidth(t *testing.T) {
 	p := l.Pack()
 	for width := 70; width <= 230; width += 9 {
 		for _, height := range []int{0, 24, 40, 70} {
-			if w := maxWidth(renderLayout(l, p, "Test car", width, height)); w > width {
+			if w := maxWidth(renderLayout(l, p, "Test car", width, height, "")); w > width {
 				t.Errorf("width %d height %d: a line is %d wide", width, height, w)
 			}
 		}
@@ -197,7 +197,7 @@ func TestLayoutFitsTheHeightWhenPossible(t *testing.T) {
 	l := sampleLoad()
 	p := l.Pack()
 	for _, tc := range []struct{ width, height int }{{80, 30}, {80, 24}, {120, 24}, {120, 40}, {160, 24}, {200, 30}} {
-		out := renderLayout(l, p, "Test car", tc.width, tc.height)
+		out := renderLayout(l, p, "Test car", tc.width, tc.height, "")
 		if n := strings.Count(out, "\n"); n > tc.height-1 {
 			t.Errorf("%d×%d: layout is %d lines, want at most %d so the top isn't cut off", tc.width, tc.height, n, tc.height-1)
 		}
@@ -207,20 +207,20 @@ func TestLayoutFitsTheHeightWhenPossible(t *testing.T) {
 func TestTallerTerminalGetsFinerScale(t *testing.T) {
 	l := sampleLoad()
 	p := l.Pack()
-	short := scaleOf(t, renderLayout(l, p, "", 120, 24))
-	tall := scaleOf(t, renderLayout(l, p, "", 120, 60))
-	unknown := scaleOf(t, renderLayout(l, p, "", 120, 0))
+	short := scaleOf(t, renderLayout(l, p, "", 120, 24, ""))
+	tall := scaleOf(t, renderLayout(l, p, "", 120, 60, ""))
+	unknown := scaleOf(t, renderLayout(l, p, "", 120, 0, ""))
 	if !(short > tall) || tall != unknown {
 		t.Errorf("scale: height 24 → %d, height 60 → %d, unknown → %d; want a shorter screen to be coarser", short, tall, unknown)
 	}
 }
 
 func TestWideShortTerminalPutsViewsInOneRow(t *testing.T) {
-	out := renderLayout(sampleLoad(), sampleLoad().Pack(), "", 200, 24)
+	out := renderLayout(sampleLoad(), sampleLoad().Pack(), "", 200, 24, "")
 	if !lineWith(out, "Top view", "Driver side", "Passenger side", "Rear view") {
 		t.Errorf("all four titles should share a line when the screen is wide and short:\n%s", out)
 	}
-	grid := renderLayout(sampleLoad(), sampleLoad().Pack(), "", 80, 0)
+	grid := renderLayout(sampleLoad(), sampleLoad().Pack(), "", 80, 0, "")
 	if lineWith(grid, "Top view", "Driver side") || !lineWith(grid, "Top view", "Rear view") || !lineWith(grid, "Driver side", "Passenger side") {
 		t.Errorf("a narrow screen should use the 2×2 grid:\n%s", grid)
 	}
@@ -230,16 +230,16 @@ func TestLegendUsesColumnsWhenWide(t *testing.T) {
 	l := sampleLoad()
 	p := l.Pack()
 	// Columns fill top to bottom, so with four entries in two columns set #1 sits beside set #3.
-	if wide := renderLayout(l, p, "", 200, 0); !lineWith(wide, "set #1", "set #3") {
+	if wide := renderLayout(l, p, "", 200, 0, ""); !lineWith(wide, "set #1", "set #3") {
 		t.Errorf("a wide screen should list the legend in columns:\n%s", wide)
 	}
-	if narrow := renderLayout(l, p, "", 80, 0); lineWith(narrow, "set #1", "set #3") {
+	if narrow := renderLayout(l, p, "", 80, 0, ""); lineWith(narrow, "set #1", "set #3") {
 		t.Errorf("a narrow screen should list the legend in one column:\n%s", narrow)
 	}
 }
 
 func TestLayoutTooNarrowStillRenders(t *testing.T) {
-	if out := renderLayout(sampleLoad(), sampleLoad().Pack(), "", 20, 10); !strings.Contains(out, "Top view") {
+	if out := renderLayout(sampleLoad(), sampleLoad().Pack(), "", 20, 10, ""); !strings.Contains(out, "Top view") {
 		t.Errorf("a tiny terminal should still get a layout:\n%s", out)
 	}
 }

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -568,3 +571,95 @@ func TestLayoutHasNoBalanceWithoutWeights(t *testing.T) {
 
 // flat collapses runs of whitespace, so text that wraps can still be matched.
 func flat(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// runCmd runs a command returned by Update and feeds its message back in.
+func runCmd(t *testing.T, m model, cmd tea.Cmd) model {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("expected a command")
+	}
+	next, _ := m.Update(cmd())
+	return next.(model)
+}
+
+func imageModel(t *testing.T, open func(string) error) model {
+	t.Helper()
+	m := newModel(options{seatsDown: true, merge: true, imageDir: t.TempDir(), openImage: open})
+	m = typeSetW(m, "30", "20", "15", "40", "3")
+	return press(m, "esc", "L")
+}
+
+func pressKey(m model, k string) (model, tea.Cmd) {
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+	return next.(model), cmd
+}
+
+func TestExportImageSavesAndOpens(t *testing.T) {
+	var opened []string
+	m := imageModel(t, func(path string) error { opened = append(opened, path); return nil })
+	m, cmd := pressKey(m, "i")
+	if m.mode != modeLayout || !strings.Contains(m.status, "Saved "+m.imageDir) || !strings.HasSuffix(strings.Fields(m.status)[1], ".svg") {
+		t.Fatalf("mode=%v status=%q, want it to stay on the layout and name the saved file", m.mode, m.status)
+	}
+	path := strings.Fields(m.status)[1]
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.HasPrefix(string(data), "<svg") || !strings.Contains(string(data), "Set #1") {
+		t.Fatalf("image file: %v\n%.200s", err, data)
+	}
+	m = runCmd(t, m, cmd)
+	if len(opened) != 1 || opened[0] != path || !strings.Contains(m.status, "Saved and opened "+path) {
+		t.Errorf("opened=%v status=%q", opened, m.status)
+	}
+	if !strings.Contains(m.View(), "Saved and opened") {
+		t.Errorf("the layout screen should show the status:\n%s", m.View())
+	}
+	if m, _ = pressKey(m, "x"); m.mode != modeCommand || m.status != "" {
+		t.Errorf("mode=%v status=%q, want the next key to return and clear the message", m.mode, m.status)
+	}
+}
+
+func TestExportImageWhenNoViewer(t *testing.T) {
+	m := imageModel(t, func(string) error { return errors.New("exec: \"xdg-open\": executable file not found in $PATH") })
+	m, cmd := pressKey(m, "i")
+	path := strings.Fields(m.status)[1]
+	m = runCmd(t, m, cmd)
+	if !strings.Contains(m.status, "couldn't open an image viewer") || !strings.Contains(m.status, path) || !strings.Contains(m.status, "Open the file yourself") {
+		t.Errorf("status = %q, want the path and a note to open it by hand", m.status)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("the file should still be saved: %v", err)
+	}
+}
+
+func TestExportImageNeedsPlacedPieces(t *testing.T) {
+	m := newModel(options{seatsDown: true, merge: true, imageDir: t.TempDir(), openImage: func(string) error {
+		t.Error("the viewer should not open when there is nothing to draw")
+		return nil
+	}})
+	m = press(m, "esc", "L")
+	m, cmd := pressKey(m, "i")
+	entries, _ := os.ReadDir(m.imageDir)
+	if cmd != nil || len(entries) != 0 || !strings.Contains(m.status, "Nothing to draw") {
+		t.Errorf("cmd=%v files=%d status=%q", cmd != nil, len(entries), m.status)
+	}
+}
+
+func TestExportImageReportsWriteFailure(t *testing.T) {
+	m := imageModel(t, func(string) error { return nil })
+	blocker := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(blocker, []byte("x"), 0o644)
+	m.imageDir = filepath.Join(blocker, "sub") // a path under a regular file can't be created
+	m, cmd := pressKey(m, "i")
+	if cmd != nil || !strings.Contains(m.status, "Couldn't save the image") {
+		t.Errorf("cmd=%v status=%q, want a save error and no viewer launch", cmd != nil, m.status)
+	}
+}
+
+func TestLayoutStatusCountsAgainstHeight(t *testing.T) {
+	l := sampleLoad()
+	p := l.Pack()
+	withStatus := renderLayout(l, p, "", 120, 24, "Saved /tmp/x.svg — opening it…")
+	if n := strings.Count(withStatus, "\n"); n > 23 || !strings.Contains(withStatus, "Saved /tmp/x.svg") {
+		t.Errorf("status screen is %d lines, want it to fit in 23 and show the message", n)
+	}
+}

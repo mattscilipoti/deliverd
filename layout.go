@@ -202,7 +202,7 @@ func layoutHead(l Load, header string) string {
 		header + dimStyle.Render("  ·  Dolly: "+dollyText(l.Dolly))
 }
 
-const layoutFoot = "D dolly: off / behind seats / with items • any other key returns"
+const layoutFoot = "i image • D dolly (off/seats/items) • any other key returns"
 
 // composeViews lays the four views out in the given arrangement.
 func composeViews(l Load, v views, arr arrangement) string {
@@ -222,7 +222,16 @@ func composeViews(l Load, v views, arr arrangement) string {
 }
 
 // composeScreen assembles the whole layout screen for one scale and arrangement.
-func composeScreen(l Load, p Packing, header string, width int, s float64, arr arrangement) string {
+// statusLines wraps a status message to the screen width, styled for display.
+func statusLines(status string, width int) []string {
+	var out []string
+	for _, line := range wrapText(status, max(width, 20)) {
+		out = append(out, okStyle.Render(line))
+	}
+	return out
+}
+
+func composeScreen(l Load, p Packing, header string, width int, s float64, arr arrangement, status []string) string {
 	v := buildViews(l.Space, p.Placed, s)
 	parts := []string{layoutHead(l, header), composeViews(l, v, arr)}
 
@@ -246,48 +255,57 @@ func composeScreen(l Load, p Packing, header string, width int, s float64, arr a
 		parts = append(parts, indent(fmt.Sprintf("Weight balance: %.0f%% in the front half, centre of mass %s in above the floor.",
 			bal.FrontShare*100, fmtNum(math.Round(bal.CenterZ)))))
 	}
-	parts = append(parts, legendBlock(l, p, width), dimStyle.Render(layoutFoot))
+	parts = append(parts, legendBlock(l, p, width))
+	parts = append(parts, status...)
+	parts = append(parts, dimStyle.Render(layoutFoot))
 	return strings.Join(parts, "\n")
 }
 
 // renderLayout draws the layout screen. header describes the vehicle. It picks
 // the finest scale at which the views, in a single row if that fits or else a
-// 2×2 grid, fit within width and, when height is known (> 0), height.
-func renderLayout(l Load, p Packing, header string, width, height int) string {
+// 2×2 grid, fit within width and, when height is known (> 0), height. status,
+// if set, is shown above the footer and counts against the height.
+func renderLayout(l Load, p Packing, header string, width, height int, status string) string {
 	head, foot := layoutHead(l, header), dimStyle.Render(layoutFoot)
+	st := statusLines(status, width)
+	stText := strings.Join(append(st, foot), "\n")
 	switch {
 	case len(l.All()) == 0:
-		return head + "\nNothing to show yet. Add item sets first.\n" + foot + "\n"
+		return head + "\nNothing to show yet. Add item sets first.\n" + stText + "\n"
 	case p.Skipped:
-		return head + fmt.Sprintf("\nPacking was skipped because there are more than %d pieces, so there is no layout to draw.\n", maxPackPieces) + foot + "\n"
+		return head + fmt.Sprintf("\nPacking was skipped because there are more than %d pieces, so there is no layout to draw.\n", maxPackPieces) + stText + "\n"
 	case len(p.Placed) == 0:
-		return head + "\nThe packing heuristic couldn't place any pieces.\n" + legendBlock(l, p, width) + "\n" + foot + "\n"
+		return head + "\nThe packing heuristic couldn't place any pieces.\n" + legendBlock(l, p, width) + "\n" + stText + "\n"
 	}
 
-	var best string
-	bestLines := -1
+	type choice struct {
+		s     float64
+		arr   arrangement
+		lines int
+	}
+	var best *choice
 	for s := 1.0; s <= maxLayoutScale; s++ {
 		for _, arr := range []arrangement{arrRow, arrGrid} {
 			if estWidth(l.Space, s, arr) > width {
 				continue
 			}
-			screen := composeScreen(l, p, header, width, s, arr)
+			screen := composeScreen(l, p, header, width, s, arr, nil)
 			if lipgloss.Width(screen) > width {
 				continue
 			}
-			n := strings.Count(screen, "\n") + 1
+			n := strings.Count(screen, "\n") + 1 + len(st)
 			if height <= 0 || n <= height-1 { // leave a line so nothing scrolls off the top
-				return screen + "\n"
+				return composeScreen(l, p, header, width, s, arr, st) + "\n"
 			}
-			if bestLines < 0 || n < bestLines {
-				best, bestLines = screen, n
+			if best == nil || n < best.lines {
+				best = &choice{s, arr, n}
 			}
 		}
 	}
-	if best == "" { // too narrow for any scale: draw the coarsest grid anyway
-		best = composeScreen(l, p, header, width, maxLayoutScale, arrGrid)
+	if best == nil { // too narrow for any scale: draw the coarsest grid anyway
+		best = &choice{maxLayoutScale, arrGrid, 0}
 	}
-	return best + "\n"
+	return composeScreen(l, p, header, width, best.s, best.arr, st) + "\n"
 }
 
 // mixedWeights reports whether some entries have a weight and some do not.

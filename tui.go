@@ -62,9 +62,12 @@ type model struct {
 	confirmAction func(*model)
 	helpReturn    mode // mode to go back to when help or the layout closes
 
-	width      int // terminal size from the last WindowSizeMsg; 0 until known
-	height     int
-	layoutPack Packing // packing computed when the layout was opened
+	width  int // terminal size from the last WindowSizeMsg; 0 until known
+	height int
+
+	imageDir   string                  // where exported layout images go
+	openImage  func(path string) error // opens an image in the OS viewer
+	layoutPack Packing                 // packing computed when the layout was opened
 }
 
 func newInputs(labels []string) []textinput.Model {
@@ -91,6 +94,9 @@ type options struct {
 	// occupantsSet says occupants was given, since 0 is a valid weight.
 	occupantsSet bool
 	storeDir     string // where saved loads live; empty disables saving
+	imageDir     string // where layout images are written; empty means the temp dir
+	// openImage replaces the OS image viewer launcher, for tests.
+	openImage func(path string) error
 }
 
 func newModel(o options) model {
@@ -103,6 +109,8 @@ func newModel(o options) model {
 		merge:      o.merge,
 		editing:    -1,
 		store:      Store{Dir: o.storeDir},
+		imageDir:   o.imageDir,
+		openImage:  o.openImage,
 		savedKey:   setsKey(nil),
 	}
 	m.nameInput = textinput.New()
@@ -365,6 +373,10 @@ func (m *model) refreshPack() {
 }
 
 func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if om, ok := msg.(imageOpenedMsg); ok {
+		m.status = om.status()
+		return m, nil
+	}
 	if ws, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width, m.height = ws.Width, ws.Height
 		return m, nil
@@ -548,7 +560,7 @@ func (m model) View() string {
 	case modeHelp:
 		return helpText()
 	case modeLayout:
-		return renderLayout(m.load, m.layoutPack, m.layoutHeader(), m.layoutWidth(), m.height)
+		return renderLayout(m.load, m.layoutPack, m.layoutHeader(), m.layoutWidth(), m.height, m.status)
 	}
 	var b strings.Builder
 	sp := m.load.Space
