@@ -1,0 +1,41 @@
+{
+  "name": "deliverd (Go)",
+  // Official Docker Hub "golang" image; the "latest" tag tracks the newest Go release.
+  "image": "golang:latest",
+  "features": {
+    // Creates a non-root "vscode" user (the golang image only has root).
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "username": "vscode",
+      "installZsh": false,
+      "upgradePackages": false
+    }
+  },
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "GOFLAGS": "-buildvcs=false"
+  },
+  "mounts": [
+    // Persist module and build caches across container rebuilds.
+    "source=deliverd-go-mod,target=/go/pkg,type=volume",
+    "source=deliverd-go-cache,target=/home/vscode/.cache/go-build,type=volume"
+  ],
+  "postCreateCommand": "sudo chown -R vscode:vscode /go /home/vscode/.cache && go version && go install golang.org/x/tools/gopls@latest && go install github.com/go-delve/delve/cmd/dlv@latest",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "Anthropic.claude-code"
+      ],
+      "settings": {
+        "go.toolsManagement.autoUpdate": true,
+        "go.useLanguageServer": true,
+        "[go]": {
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          }
+        }
+      }
+    }
+  }
+}
