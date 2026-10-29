@@ -73,3 +73,45 @@ func TestOversizedItem(t *testing.T) {
 		t.Error("Fits = true, want false even though volume is small")
 	}
 }
+
+func TestAddMerge(t *testing.T) {
+	l := Load{Space: DefaultSpace}
+	l.Add(ItemSet{2, Dims{10, 10, 10}}, true)
+	l.Add(ItemSet{1, Dims{20, 10, 10}}, true)
+	if i := l.Add(ItemSet{3, Dims{10, 10, 10}}, true); i != 0 {
+		t.Errorf("merged index = %d, want 0", i)
+	}
+	if len(l.Sets) != 2 || l.Sets[0].Qty != 5 {
+		t.Errorf("Sets = %v, want 2 sets with first qty 5", l.Sets)
+	}
+}
+
+func TestAddNoMerge(t *testing.T) {
+	l := Load{Space: DefaultSpace}
+	l.Add(ItemSet{2, Dims{10, 10, 10}}, false)
+	l.Add(ItemSet{3, Dims{10, 10, 10}}, false)
+	if len(l.Sets) != 2 {
+		t.Errorf("Sets = %v, want 2 separate sets", l.Sets)
+	}
+}
+
+func TestReplaceMergesIntoDuplicate(t *testing.T) {
+	l := Load{Space: DefaultSpace, Sets: []ItemSet{
+		{2, Dims{10, 10, 10}},
+		{1, Dims{20, 10, 10}},
+	}}
+	i := l.Replace(1, ItemSet{4, Dims{10, 10, 10}}, true)
+	if i != 0 || len(l.Sets) != 1 || l.Sets[0].Qty != 6 {
+		t.Errorf("index=%d Sets=%v, want index 0, one set with qty 6", i, l.Sets)
+	}
+}
+
+func TestMergeDuplicates(t *testing.T) {
+	l := Load{Sets: []ItemSet{
+		{1, Dims{1, 2, 3}}, {1, Dims{4, 5, 6}}, {2, Dims{1, 2, 3}},
+	}}
+	l.MergeDuplicates()
+	if len(l.Sets) != 2 || l.Sets[0].Qty != 3 || l.Sets[1].Qty != 1 {
+		t.Errorf("Sets = %v", l.Sets)
+	}
+}
