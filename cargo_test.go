@@ -79,9 +79,9 @@ func TestOversizedItem(t *testing.T) {
 
 func TestAddMerge(t *testing.T) {
 	l := Load{Space: testSpace}
-	l.Add(ItemSet{2, Dims{10, 10, 10}}, true)
-	l.Add(ItemSet{1, Dims{20, 10, 10}}, true)
-	if i := l.Add(ItemSet{3, Dims{10, 10, 10}}, true); i != 0 {
+	l.Add(ItemSet{Qty: 2, Dims: Dims{10, 10, 10}}, true)
+	l.Add(ItemSet{Qty: 1, Dims: Dims{20, 10, 10}}, true)
+	if i := l.Add(ItemSet{Qty: 3, Dims: Dims{10, 10, 10}}, true); i != 0 {
 		t.Errorf("merged index = %d, want 0", i)
 	}
 	if len(l.Sets) != 2 || l.Sets[0].Qty != 5 {
@@ -91,8 +91,8 @@ func TestAddMerge(t *testing.T) {
 
 func TestAddNoMerge(t *testing.T) {
 	l := Load{Space: testSpace}
-	l.Add(ItemSet{2, Dims{10, 10, 10}}, false)
-	l.Add(ItemSet{3, Dims{10, 10, 10}}, false)
+	l.Add(ItemSet{Qty: 2, Dims: Dims{10, 10, 10}}, false)
+	l.Add(ItemSet{Qty: 3, Dims: Dims{10, 10, 10}}, false)
 	if len(l.Sets) != 2 {
 		t.Errorf("Sets = %v, want 2 separate sets", l.Sets)
 	}
@@ -100,10 +100,10 @@ func TestAddNoMerge(t *testing.T) {
 
 func TestReplaceMergesIntoDuplicate(t *testing.T) {
 	l := Load{Space: testSpace, Sets: []ItemSet{
-		{2, Dims{10, 10, 10}},
-		{1, Dims{20, 10, 10}},
+		{Qty: 2, Dims: Dims{10, 10, 10}},
+		{Qty: 1, Dims: Dims{20, 10, 10}},
 	}}
-	i := l.Replace(1, ItemSet{4, Dims{10, 10, 10}}, true)
+	i := l.Replace(1, ItemSet{Qty: 4, Dims: Dims{10, 10, 10}}, true)
 	if i != 0 || len(l.Sets) != 1 || l.Sets[0].Qty != 6 {
 		t.Errorf("index=%d Sets=%v, want index 0, one set with qty 6", i, l.Sets)
 	}
@@ -111,7 +111,7 @@ func TestReplaceMergesIntoDuplicate(t *testing.T) {
 
 func TestMergeDuplicates(t *testing.T) {
 	l := Load{Sets: []ItemSet{
-		{1, Dims{1, 2, 3}}, {1, Dims{4, 5, 6}}, {2, Dims{1, 2, 3}},
+		{Qty: 1, Dims: Dims{1, 2, 3}}, {Qty: 1, Dims: Dims{4, 5, 6}}, {Qty: 2, Dims: Dims{1, 2, 3}},
 	}}
 	l.MergeDuplicates()
 	if len(l.Sets) != 2 || l.Sets[0].Qty != 3 || l.Sets[1].Qty != 1 {
@@ -120,7 +120,7 @@ func TestMergeDuplicates(t *testing.T) {
 }
 
 func TestDollyCountsTowardUsedVolume(t *testing.T) {
-	l := Load{Space: testSpace, Sets: []ItemSet{{1, Dims{10, 10, 10}}}}
+	l := Load{Space: testSpace, Sets: []ItemSet{{Qty: 1, Dims: Dims{10, 10, 10}}}}
 	if got := l.Used(); got != 1000 {
 		t.Fatalf("Used without dolly = %v, want 1000", got)
 	}
@@ -142,7 +142,7 @@ func TestDollyTooBigForSpace(t *testing.T) {
 }
 
 func TestDollyBehindSeatsTakesNoCargoSpace(t *testing.T) {
-	l := Load{Space: Dims{40, 20, 10}, Sets: []ItemSet{{1, Dims{10, 10, 10}}}}
+	l := Load{Space: Dims{40, 20, 10}, Sets: []ItemSet{{Qty: 1, Dims: Dims{10, 10, 10}}}}
 	base := l.Used()
 	l.Dolly = DollyBehindSeats
 	// The dolly would not fit this box if it were counted.
@@ -169,5 +169,61 @@ func TestDollyModeCycleAndParse(t *testing.T) {
 	}
 	if _, err := ParseDollyMode("garage"); err == nil {
 		t.Error("ParseDollyMode accepted an unknown value")
+	}
+}
+
+func TestWeightMath(t *testing.T) {
+	l := Load{
+		Space:        testSpace,
+		PayloadLimit: 915,
+		Occupants:    175,
+		Sets: []ItemSet{
+			{Qty: 3, Weight: 50, Dims: Dims{10, 10, 10}},
+			{Qty: 2, Dims: Dims{5, 5, 5}}, // no weight entered
+		},
+	}
+	if got := l.Weight(); got != 150 {
+		t.Errorf("Weight = %v, want 150 (unweighted sets add nothing)", got)
+	}
+	if l.Unweighted() != 1 {
+		t.Errorf("Unweighted = %d, want 1", l.Unweighted())
+	}
+	if l.WeightAllowance() != 740 || l.WeightRemaining() != 590 || !l.WeightOK() {
+		t.Errorf("allowance=%v remaining=%v ok=%v, want 740, 590, true", l.WeightAllowance(), l.WeightRemaining(), l.WeightOK())
+	}
+	l.Sets[0].Qty = 20 // 1000 lb
+	if l.WeightRemaining() != -260 || l.WeightOK() {
+		t.Errorf("remaining=%v ok=%v, want -260 and not ok", l.WeightRemaining(), l.WeightOK())
+	}
+}
+
+func TestWeightLimitUnknownMeansNoCheck(t *testing.T) {
+	l := Load{Space: testSpace, Sets: []ItemSet{{Qty: 1000, Weight: 500, Dims: Dims{1, 1, 1}}}}
+	if l.HasWeightLimit() || !l.WeightOK() {
+		t.Error("with no payload limit the weight check should pass")
+	}
+}
+
+func TestOccupantsAloneCanExceedLimit(t *testing.T) {
+	l := Load{PayloadLimit: 100, Occupants: 300}
+	if l.WeightAllowance() != -200 || l.WeightOK() {
+		t.Errorf("allowance=%v ok=%v, want -200 and not ok even with no cargo", l.WeightAllowance(), l.WeightOK())
+	}
+}
+
+func TestMergeRequiresSameWeight(t *testing.T) {
+	l := Load{Space: testSpace}
+	l.Add(ItemSet{Qty: 1, Weight: 10, Dims: Dims{5, 5, 5}}, true)
+	l.Add(ItemSet{Qty: 1, Weight: 20, Dims: Dims{5, 5, 5}}, true)
+	if len(l.Sets) != 2 {
+		t.Fatalf("Sets = %v, want same-size items of different weight kept apart", l.Sets)
+	}
+	l.Add(ItemSet{Qty: 2, Weight: 20, Dims: Dims{5, 5, 5}}, true)
+	if len(l.Sets) != 2 || l.Sets[1].Qty != 3 {
+		t.Errorf("Sets = %v, want the matching weight merged", l.Sets)
+	}
+	l.MergeDuplicates()
+	if len(l.Sets) != 2 {
+		t.Errorf("MergeDuplicates changed %v", l.Sets)
 	}
 }

@@ -15,7 +15,13 @@ type Vehicle struct {
 	SeatsDown Cargo
 	// Manufacturer-listed cargo volumes in ft³, shown so the box can be sanity-checked.
 	ListedUpFt3, ListedDownFt3 float64
+	// PayloadLb is the combined weight limit for occupants and cargo, in lb.
+	PayloadLb   float64
+	PayloadNote string
 }
+
+// DefaultOccupantsLb is the starting occupant weight: one driver.
+const DefaultOccupantsLb = 175
 
 func (v Vehicle) Cargo(seatsDown bool) Cargo {
 	if seatsDown {
@@ -50,6 +56,8 @@ var Vehicles = []Vehicle{
 		},
 		ListedUpFt3:   34.3,
 		ListedDownFt3: 67.3,
+		PayloadLb:     915,
+		PayloadNote:   "forum-reported owner's manual figure, unverified; check the sticker in your driver's door jamb",
 	},
 }
 

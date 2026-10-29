@@ -124,7 +124,7 @@ func TestLabels(t *testing.T) {
 }
 
 func TestRenderLayoutLegendAndContent(t *testing.T) {
-	l := Load{Space: Dims{60, 24, 12}, Dolly: DollyWithItems, Sets: []ItemSet{{2, Dims{10, 10, 6}}, {1, Dims{100, 5, 5}}}}
+	l := Load{Space: Dims{60, 24, 12}, Dolly: DollyWithItems, Sets: []ItemSet{{Qty: 2, Dims: Dims{10, 10, 6}}, {Qty: 1, Dims: Dims{100, 5, 5}}}}
 	out := renderLayout(l, l.Pack(), "Test car", 80)
 	for _, want := range []string{
 		"Top view", "Rear view", "Driver side", "Passenger side", "front", "hatch", "driver", "passenger", "Test car",
@@ -146,7 +146,7 @@ func TestRenderLayoutEmptyAndSkipped(t *testing.T) {
 	if out := renderLayout(empty, empty.Pack(), "", 80); !strings.Contains(out, "Nothing to show") {
 		t.Errorf("empty layout:\n%s", out)
 	}
-	big := Load{Space: Dims{100, 100, 100}, Sets: []ItemSet{{maxPackPieces + 1, Dims{1, 1, 1}}}}
+	big := Load{Space: Dims{100, 100, 100}, Sets: []ItemSet{{Qty: maxPackPieces + 1, Dims: Dims{1, 1, 1}}}}
 	if out := renderLayout(big, big.Pack(), "", 80); !strings.Contains(out, "skipped") {
 		t.Errorf("skipped layout:\n%s", out)
 	}

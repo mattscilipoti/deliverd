@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -98,6 +99,9 @@ func (s Store) Load(name string) ([]ItemSet, error) {
 	for i, it := range sl.Sets {
 		if it.Qty <= 0 || it.L <= 0 || it.W <= 0 || it.H <= 0 {
 			return nil, fmt.Errorf("%s: set #%d has a non-positive quantity or dimension", name, i+1)
+		}
+		if it.Weight < 0 || math.IsNaN(it.Weight) {
+			return nil, fmt.Errorf("%s: set #%d has an invalid weight", name, i+1)
 		}
 	}
 	return sl.Sets, nil

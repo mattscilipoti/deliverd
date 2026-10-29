@@ -34,11 +34,18 @@ func FitsInside(item, space Dims) bool {
 }
 
 type ItemSet struct {
-	Qty int `json:"qty"`
+	Qty    int     `json:"qty"`
+	Weight float64 `json:"weight,omitempty"` // lb per item; 0 means not entered
 	Dims
 }
 
 func (s ItemSet) TotalVolume() float64 { return float64(s.Qty) * s.Volume() }
+
+func (s ItemSet) TotalWeight() float64 { return float64(s.Qty) * s.Weight }
+
+// sameKind reports whether two sets are interchangeable and can be merged:
+// same dimensions and same per-item weight.
+func (s ItemSet) sameKind(o ItemSet) bool { return s.Dims == o.Dims && s.Weight == o.Weight }
 
 // Dolly is optional equipment: 48 × 24 × 6 in when it rides with the items.
 var Dolly = ItemSet{Qty: 1, Dims: Dims{L: 48, W: 24, H: 6}}
@@ -87,6 +94,12 @@ type Load struct {
 	Space Dims
 	Sets  []ItemSet
 	Dolly DollyMode
+
+	// PayloadLimit is the vehicle's combined limit for occupants and cargo in
+	// lb; 0 means unknown, so no weight check is made. Occupants is what the
+	// people in the car weigh, which comes out of that limit.
+	PayloadLimit float64
+	Occupants    float64
 }
 
 // DollyPacked reports whether the dolly is counted and packed with the items.
@@ -135,7 +148,7 @@ func (l Load) Fits() bool {
 func (l *Load) Add(s ItemSet, merge bool) int {
 	if merge {
 		for i := range l.Sets {
-			if l.Sets[i].Dims == s.Dims {
+			if l.Sets[i].sameKind(s) {
 				l.Sets[i].Qty += s.Qty
 				return i
 			}
@@ -154,7 +167,7 @@ func (l *Load) Replace(i int, s ItemSet, merge bool) int {
 	}
 	l.MergeDuplicates()
 	for k := range l.Sets {
-		if l.Sets[k].Dims == s.Dims {
+		if l.Sets[k].sameKind(s) {
 			return k
 		}
 	}
@@ -167,7 +180,7 @@ func (l *Load) MergeDuplicates() {
 	for _, s := range l.Sets {
 		merged := false
 		for k := range out {
-			if out[k].Dims == s.Dims {
+			if out[k].sameKind(s) {
 				out[k].Qty += s.Qty
 				merged = true
 				break
@@ -179,3 +192,39 @@ func (l *Load) MergeDuplicates() {
 	}
 	l.Sets = out
 }
+
+// Weight is the total entered weight of the item sets in lb. The dolly is not
+// included; count it in Occupants.
+func (l Load) Weight() float64 {
+	var total float64
+	for _, s := range l.Sets {
+		total += s.TotalWeight()
+	}
+	return total
+}
+
+// Unweighted counts the item sets with no weight entered. While it is above
+// zero, Weight is a minimum.
+func (l Load) Unweighted() int {
+	var n int
+	for _, s := range l.Sets {
+		if s.Weight == 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// WeightAllowance is what the cargo may weigh once the occupants are
+// subtracted from the limit. It can be negative.
+func (l Load) WeightAllowance() float64 { return l.PayloadLimit - l.Occupants }
+
+// WeightRemaining is the allowance left after the entered cargo weight.
+func (l Load) WeightRemaining() float64 { return l.WeightAllowance() - l.Weight() }
+
+// HasWeightLimit reports whether a payload limit is known.
+func (l Load) HasWeightLimit() bool { return l.PayloadLimit > 0 }
+
+// WeightOK is true when the entered weight is within the allowance, or when no
+// limit is known.
+func (l Load) WeightOK() bool { return !l.HasWeightLimit() || l.WeightRemaining() >= 0 }
