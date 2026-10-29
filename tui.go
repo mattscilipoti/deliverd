@@ -696,7 +696,7 @@ func (m model) summary() string {
 
 // packingLine reports the 3D packing heuristic. It is a search, so failing to
 // place something means "not found", and succeeding is not a guarantee either
-// (it ignores weight and crushing).
+// (it doesn't model crushing or fragile items).
 func (m model) packingLine() string {
 	p := m.pack
 	switch {

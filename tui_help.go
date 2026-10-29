@@ -16,7 +16,8 @@ var helpSections = []struct {
 		"Enter item sets (L, W, H in inches, Qty) to see if a delivery fits the car.",
 		"Qty is optional and defaults to 1. Identical sets merge into one row.",
 		"Checks: total volume, each item's size in any rotation, and a 3D packing",
-		"heuristic. Packing can miss layouts and ignores weight, so treat it as a guide.",
+		"heuristic: it puts heavier pieces low and forward and never on lighter ones,",
+		"but it can miss layouts, so treat it as a guide.",
 	}},
 	{"Adding items", []string{
 		"tab / shift+tab   next / previous field",

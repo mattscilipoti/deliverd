@@ -57,7 +57,7 @@ var Vehicles = []Vehicle{
 		ListedUpFt3:   34.3,
 		ListedDownFt3: 67.3,
 		PayloadLb:     915,
-		PayloadNote:   "forum-reported owner's manual figure, unverified; check the sticker in your driver's door jamb",
+		PayloadNote:   "from the driver's door plaque",
 	},
 }
 

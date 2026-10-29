@@ -421,7 +421,7 @@ func TestWeightSummaryWithinAndOver(t *testing.T) {
 	v := m.View()
 	for _, want := range []string{
 		"Weight limit 915 lb − occupants 175 lb = 740 lb for cargo",
-		"unverified", "door jamb",
+		"from the driver's door plaque",
 		"150 lb of 740 lb for cargo", "Within the weight limit (590 lb to spare)",
 	} {
 		if !strings.Contains(v, want) {
@@ -536,5 +536,32 @@ func TestLayoutLegendShowsWeight(t *testing.T) {
 	m = press(m, "esc", "L")
 	if v := m.View(); !strings.Contains(v, "50 lb") {
 		t.Errorf("legend should show the set's total weight:\n%s", v)
+	}
+}
+
+func TestLayoutShowsBalanceAndWeightNotes(t *testing.T) {
+	m := typeSetW(newTestModel(true), "10", "10", "10", "50", "2")
+	m = press(m, "esc", "L")
+	v := m.View()
+	for _, want := range []string{"Weight balance:", "front half", "centre of mass", "Heavier pieces go in first"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("layout missing %q:\n%s", want, v)
+		}
+	}
+	if strings.Contains(v, "treated as weightless") {
+		t.Error("the weightless note should only appear when weights are mixed")
+	}
+	m = press(m, "x", "i")
+	m = typeSet(m, "5", "5", "5", "1") // a set with no weight
+	m = press(m, "esc", "L")
+	if !strings.Contains(m.View(), "treated as weightless") {
+		t.Errorf("mixed weights should explain how unweighted pieces are handled:\n%s", m.View())
+	}
+}
+
+func TestLayoutHasNoBalanceWithoutWeights(t *testing.T) {
+	m := press(typeSet(newTestModel(true), "10", "10", "10", "2"), "esc", "L")
+	if strings.Contains(m.View(), "Weight balance") {
+		t.Errorf("no weights entered, so there is no balance to report:\n%s", m.View())
 	}
 }

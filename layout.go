@@ -206,15 +206,36 @@ func renderLayout(l Load, p Packing, header string, width int) string {
 		for _, note := range []string{
 			"Top: passenger side up. Rear: looking forward. Sides: seen from outside.",
 			"Side and rear: top row is the ceiling. Left-hand drive assumed.",
-			"Thin pieces may not show. The packing is a heuristic and ignores weight.",
+			"Heavier pieces go in first: low, forward, never on lighter ones.",
+			"Thin pieces may not show. The packing is a heuristic, not a guarantee.",
 		} {
 			b.WriteString(dimStyle.Render(note) + "\n")
 		}
+		if mixedWeights(l) {
+			b.WriteString(dimStyle.Render("Pieces with no weight are treated as weightless: nothing heavy rests on them.") + "\n")
+		}
 		b.WriteString("\n")
+		if bal, ok := p.Balance(l.Space); ok {
+			b.WriteString(fmt.Sprintf("Weight balance: %.0f%% in the front half, centre of mass %s in above the floor.\n\n",
+				bal.FrontShare*100, fmtNum(math.Round(bal.CenterZ))))
+		}
 		b.WriteString(legend(l, p))
 	}
 	b.WriteString("\n" + dimStyle.Render("D dolly: off / behind seats / with items • any other key returns") + "\n")
 	return b.String()
+}
+
+// mixedWeights reports whether some entries have a weight and some do not.
+func mixedWeights(l Load) bool {
+	var with, without bool
+	for _, s := range l.All() {
+		if s.Weight > 0 {
+			with = true
+		} else {
+			without = true
+		}
+	}
+	return with && without
 }
 
 func legend(l Load, p Packing) string {

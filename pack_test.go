@@ -112,3 +112,126 @@ func TestPackIgnoresDollyBehindSeats(t *testing.T) {
 		t.Errorf("Total=%d AllPlaced=%v, want only the item packed", p.Total, p.AllPlaced())
 	}
 }
+
+func TestHeavyPiecesGoLowAndLightOnTop(t *testing.T) {
+	// The light set is listed first, so only the weight ordering puts the heavy one on the floor.
+	l := load(Dims{10, 10, 20},
+		ItemSet{Qty: 1, Weight: 5, Dims: Dims{10, 10, 10}},
+		ItemSet{Qty: 1, Weight: 50, Dims: Dims{10, 10, 10}})
+	p := l.Pack()
+	if !p.AllPlaced() {
+		t.Fatalf("unplaced = %v", p.Unplaced)
+	}
+	for _, pl := range p.Placed {
+		wantZ := 10.0
+		if pl.Weight == 50 {
+			wantZ = 0
+		}
+		if pl.Z != wantZ {
+			t.Errorf("%v lb piece at z=%v, want %v", pl.Weight, pl.Z, wantZ)
+		}
+	}
+}
+
+func TestHeavyPiecesGoForward(t *testing.T) {
+	l := load(Dims{30, 10, 10},
+		ItemSet{Qty: 1, Weight: 5, Dims: Dims{10, 10, 10}},
+		ItemSet{Qty: 1, Weight: 50, Dims: Dims{10, 10, 10}})
+	for _, pl := range l.Pack().Placed {
+		if pl.Weight == 50 && pl.X != 0 {
+			t.Errorf("the heavy piece is at x=%v, want it at the front (x=0)", pl.X)
+		}
+	}
+}
+
+func TestRestsOK(t *testing.T) {
+	floor := func(w float64, box Dims) Placement { return Placement{Box: box, Weight: w} }
+	base := []Placement{floor(20, Dims{10, 10, 5})}
+	on := point{0, 0, 5}
+	for _, tc := range []struct {
+		name   string
+		placed []Placement
+		pt     point
+		box    Dims
+		weight float64
+		want   bool
+	}{
+		{"floor needs no support", nil, point{3, 3, 0}, Dims{4, 4, 4}, 99, true},
+		{"lighter on heavier", base, on, Dims{10, 10, 5}, 10, true},
+		{"equal weights stack", base, on, Dims{10, 10, 5}, 20, true},
+		{"heavier on lighter", base, on, Dims{10, 10, 5}, 30, false},
+		{"unweighted on weighted", base, on, Dims{10, 10, 5}, 0, true},
+		{"weighted on unweighted", []Placement{floor(0, Dims{10, 10, 5})}, on, Dims{10, 10, 5}, 1, false},
+		{"floating", nil, point{0, 0, 5}, Dims{4, 4, 4}, 1, false},
+		{"hanging mostly off the edge", base, point{8, 0, 5}, Dims{10, 10, 5}, 1, false},
+		{"enough overlap", base, point{3, 0, 5}, Dims{10, 10, 5}, 1, true}, // 70% supported
+	} {
+		if got := restsOK(tc.placed, tc.pt, tc.box, tc.weight); got != tc.want {
+			t.Errorf("%s: restsOK = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	// A piece may not slide under one that is heavier than it.
+	shelf := []Placement{{Z: 5, Box: Dims{10, 10, 5}, Weight: 40}}
+	if restsOK(shelf, point{0, 0, 0}, Dims{10, 10, 5}, 10) {
+		t.Error("a 10 lb piece was allowed under a 40 lb piece")
+	}
+	if !restsOK(shelf, point{0, 0, 0}, Dims{10, 10, 5}, 40) {
+		t.Error("a piece as heavy as the one above it should be allowed under it")
+	}
+}
+
+// Whatever the packer does, the final arrangement must be stable and ordered by weight.
+func TestPackWithWeightsIsStable(t *testing.T) {
+	l := load(Dims{89, 42, 31},
+		ItemSet{Qty: 3, Weight: 60, Dims: Dims{30, 20, 15}},
+		ItemSet{Qty: 6, Weight: 8, Dims: Dims{12, 12, 12}},
+		ItemSet{Qty: 2, Weight: 25, Dims: Dims{40, 30, 10}},
+		ItemSet{Qty: 5, Dims: Dims{18, 9, 6}}, // no weight
+	)
+	p := l.Pack()
+	if len(p.Placed) == 0 {
+		t.Fatal("nothing placed")
+	}
+	for i, a := range p.Placed {
+		others := append(append([]Placement(nil), p.Placed[:i]...), p.Placed[i+1:]...)
+		if overlapsAny(others, point{a.X, a.Y, a.Z}, a.Box) {
+			t.Errorf("placement %d overlaps another: %+v", i, a)
+		}
+		if !restsOK(others, point{a.X, a.Y, a.Z}, a.Box, a.Weight) {
+			t.Errorf("placement %d is unstable or rests on a lighter piece: %+v", i, a)
+		}
+		if a.Weight != l.All()[a.Set].Weight {
+			t.Errorf("placement %d carries weight %v, want %v", i, a.Weight, l.All()[a.Set].Weight)
+		}
+	}
+}
+
+func TestPackWithoutWeightsStillRequiresSupport(t *testing.T) {
+	l := load(Dims{89, 42, 31},
+		ItemSet{Qty: 4, Dims: Dims{30, 20, 15}},
+		ItemSet{Qty: 8, Dims: Dims{12, 12, 12}},
+		ItemSet{Qty: 3, Dims: Dims{22, 7, 5}})
+	p := l.Pack()
+	for i, a := range p.Placed {
+		others := append(append([]Placement(nil), p.Placed[:i]...), p.Placed[i+1:]...)
+		if !restsOK(others, point{a.X, a.Y, a.Z}, a.Box, 0) {
+			t.Errorf("placement %d floats in the air: %+v", i, a)
+		}
+	}
+}
+
+func TestBalance(t *testing.T) {
+	sp := Dims{100, 40, 40}
+	p := Packing{Placed: []Placement{
+		{X: 0, Z: 0, Box: Dims{10, 10, 10}, Weight: 30},   // front half, centre 5 in up
+		{X: 80, Z: 10, Box: Dims{10, 10, 10}, Weight: 10}, // rear half, centre 15 in up
+		{X: 50, Z: 0, Box: Dims{10, 10, 10}},              // no weight: ignored
+	}}
+	b, ok := p.Balance(sp)
+	if !ok || b.Weight != 40 || b.FrontShare != 0.75 || b.CenterZ != 7.5 {
+		t.Errorf("Balance = %+v, %v; want 40 lb, 0.75 front, 7.5 in up", b, ok)
+	}
+	if _, ok := (Packing{Placed: []Placement{{Box: Dims{1, 1, 1}}}}).Balance(sp); ok {
+		t.Error("Balance should report ok=false when no placed piece has a weight")
+	}
+}
