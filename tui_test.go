@@ -301,3 +301,22 @@ func TestLayoutDefaultsTo80Columns(t *testing.T) {
 		t.Errorf("width=%d; an unknown width should lay out as 80 columns", m.width)
 	}
 }
+
+func TestBuildLabelOnMainScreenAndHelp(t *testing.T) {
+	old := buildTime
+	defer func() { buildTime = old }()
+
+	buildTime = ""
+	m := newTestModel(true)
+	if !strings.Contains(m.View(), "dev build (not stamped)") || !strings.Contains(helpText(), "dev build (not stamped)") {
+		t.Error("an unstamped build should say so on the main screen and in help")
+	}
+
+	buildTime = "2026-10-29 12:56 UTC"
+	if !strings.Contains(m.View(), "built 2026-10-29 12:56 UTC") {
+		t.Errorf("main screen missing build time:\n%s", m.View())
+	}
+	if !strings.Contains(press(m, "?").View(), "built 2026-10-29 12:56 UTC") {
+		t.Error("help missing build time")
+	}
+}

@@ -15,8 +15,10 @@ cd "$(dirname "$0")"
 out="dist/deliverd-linux-${arch}"
 mkdir -p dist
 
-# CGO off gives a static binary with no libc dependency; -s -w strips debug info.
+# CGO off gives a static binary with no libc dependency; -s -w strips debug
+# info. The build time is stamped in and shown on the main screen and in help.
+build_time="$(date -u +'%Y-%m-%d %H:%M UTC')"
 CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
-  go build -trimpath -ldflags="-s -w" -o "$out" .
+  go build -trimpath -ldflags="-s -w -X 'main.buildTime=${build_time}'" -o "$out" .
 
-echo "built $out ($(du -h "$out" | cut -f1))"
+echo "built $out ($(du -h "$out" | cut -f1)) at ${build_time}"

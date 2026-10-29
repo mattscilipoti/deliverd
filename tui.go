@@ -472,7 +472,7 @@ func (m model) View() string {
 	var b strings.Builder
 	sp := m.load.Space
 
-	b.WriteString(titleStyle.Render("deliverd — will it fit?") + "\n")
+	b.WriteString(titleStyle.Render("deliverd — will it fit?") + "  " + dimStyle.Render(buildLabel()) + "\n")
 	veh := Vehicles[m.vehicle]
 	fmt.Fprintf(&b, "Vehicle: %s (%d of %d) — %s\n", veh.Name, m.vehicle+1, len(Vehicles), seatsLabel(m.seatsDown))
 	label := "Cargo space"

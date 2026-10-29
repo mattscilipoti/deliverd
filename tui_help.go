@@ -52,12 +52,13 @@ var helpSections = []struct {
 		"-dolly            start with the dolly included",
 		"-merge=false      keep identical sets separate",
 		"-dir PATH         where saved loads live (default: your config dir)",
+		"-version          print the build time and exit",
 	}},
 }
 
 func helpText() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("deliverd — help") + "\n")
+	b.WriteString(titleStyle.Render("deliverd — help") + "  " + dimStyle.Render(buildLabel()) + "\n")
 	for _, s := range helpSections {
 		b.WriteString("\n" + titleStyle.Render(s.title) + "\n")
 		for _, l := range s.lines {
