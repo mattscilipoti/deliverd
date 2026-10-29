@@ -29,10 +29,13 @@ var (
 type model struct {
 	load       Load
 	mode       mode
-	itemInputs []textinput.Model // Qty, L, W, H
+	itemInputs []textinput.Model // L, W, H, Qty
 	spcInputs  []textinput.Model // L, W, H
 	focus      int
 	err        error
+	merge      bool // combine sets with identical dimensions
+	sel        int  // selected set in command mode
+	editing    int  // index of the set being edited, or -1
 }
 
 func newInputs(labels []string) []textinput.Model {
@@ -47,12 +50,15 @@ func newInputs(labels []string) []textinput.Model {
 	return in
 }
 
-func newModel(space Dims) model {
+func newModel(space Dims, merge bool) model {
 	m := model{
 		load:       Load{Space: space},
-		itemInputs: newInputs([]string{"Qty", "L", "W", "H"}),
+		itemInputs: newInputs([]string{"L", "W", "H", "Qty"}),
 		spcInputs:  newInputs([]string{"L", "W", "H"}),
+		merge:      merge,
+		editing:    -1,
 	}
+	m.itemInputs[3].Placeholder = "1"
 	m.setFocus(m.itemInputs, 0)
 	return m
 }
@@ -106,21 +112,76 @@ func parseDims(group []textinput.Model, names []string) (Dims, error) {
 	return Dims{v[0], v[1], v[2]}, nil
 }
 
-func (m *model) addSet() error {
-	qty, err := strconv.Atoi(strings.TrimSpace(m.itemInputs[0].Value()))
-	if err != nil || qty <= 0 {
-		return errors.New("Qty must be a positive whole number")
-	}
-	d, err := parseDims(m.itemInputs[1:], []string{"L", "W", "H"})
+// readItemSet parses the item inputs. An empty Qty means 1.
+func (m *model) readItemSet() (ItemSet, error) {
+	d, err := parseDims(m.itemInputs[:3], []string{"L", "W", "H"})
 	if err != nil {
-		return err
+		return ItemSet{}, err
 	}
-	m.load.Sets = append(m.load.Sets, ItemSet{Qty: qty, Dims: d})
+	qty := 1
+	if q := strings.TrimSpace(m.itemInputs[3].Value()); q != "" {
+		if qty, err = strconv.Atoi(q); err != nil || qty <= 0 {
+			return ItemSet{}, errors.New("Qty must be a positive whole number")
+		}
+	}
+	return ItemSet{Qty: qty, Dims: d}, nil
+}
+
+func (m *model) clearItemInputs() {
 	for k := range m.itemInputs {
 		m.itemInputs[k].SetValue("")
 	}
 	m.setFocus(m.itemInputs, 0)
+}
+
+// submitItem adds a new set, or replaces the one being edited.
+func (m *model) submitItem() error {
+	set, err := m.readItemSet()
+	if err != nil {
+		return err
+	}
+	if m.editing >= 0 {
+		m.sel = m.load.Replace(m.editing, set, m.merge)
+		m.editing = -1
+		m.clearItemInputs()
+		m.enterCommandMode()
+		return nil
+	}
+	m.sel = m.load.Add(set, m.merge)
+	m.clearItemInputs()
 	return nil
+}
+
+func (m *model) enterCommandMode() {
+	m.mode = modeCommand
+	m.err = nil
+	blurAll(m.itemInputs)
+	blurAll(m.spcInputs)
+	m.clampSel()
+}
+
+func (m *model) clampSel() {
+	if m.sel >= len(m.load.Sets) {
+		m.sel = len(m.load.Sets) - 1
+	}
+	if m.sel < 0 {
+		m.sel = 0
+	}
+}
+
+func (m *model) editSelected() {
+	if m.sel >= len(m.load.Sets) {
+		return
+	}
+	set := m.load.Sets[m.sel]
+	for i, v := range []float64{set.L, set.W, set.H} {
+		m.itemInputs[i].SetValue(fmtNum(v))
+	}
+	m.itemInputs[3].SetValue(strconv.Itoa(set.Qty))
+	m.editing = m.sel
+	m.mode = modeItem
+	m.err = nil
+	m.setFocus(m.itemInputs, 0)
 }
 
 func (m *model) applySpace() error {
@@ -180,14 +241,30 @@ func (m model) updateCommand(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key.String() {
 	case "q":
 		return m, tea.Quit
+	case "up", "k":
+		m.sel--
+		m.clampSel()
+	case "down", "j":
+		m.sel++
+		m.clampSel()
+	case "e":
+		m.editSelected()
 	case "d":
-		if n := len(m.load.Sets); n > 0 {
-			m.load.Sets = m.load.Sets[:n-1]
+		if m.sel < len(m.load.Sets) {
+			m.load.Sets = append(m.load.Sets[:m.sel], m.load.Sets[m.sel+1:]...)
+			m.clampSel()
 		}
 	case "c":
 		m.load.Sets = nil
-	case "e":
+		m.sel = 0
+	case "s":
 		m.enterSpaceMode()
+	case "m":
+		m.merge = !m.merge
+		if m.merge {
+			m.load.MergeDuplicates()
+			m.clampSel()
+		}
 	case "i", "enter":
 		m.enterItemMode()
 	}
@@ -204,19 +281,21 @@ func (m model) updateForm(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		m.setFocus(group, m.focus-1)
 	case "esc":
 		if m.mode == modeSpace {
-			m.enterItemMode()
+			m.enterCommandMode()
 			break
 		}
-		m.mode = modeCommand
-		m.err = nil
-		blurAll(m.itemInputs)
+		if m.editing >= 0 {
+			m.editing = -1
+			m.clearItemInputs()
+		}
+		m.enterCommandMode()
 	case "enter":
 		if m.mode == modeItem {
-			m.err = m.addSet()
+			m.err = m.submitItem()
 			break
 		}
 		if m.err = m.applySpace(); m.err == nil {
-			m.enterItemMode()
+			m.enterCommandMode()
 		}
 	default:
 		return m, nil, false
@@ -275,13 +354,17 @@ func (m model) View() string {
 		b.WriteString("Edit cargo space (inches):\n")
 		b.WriteString(joinInputs(m.spcInputs) + "\n")
 	} else {
-		b.WriteString("Add item set:\n")
+		if m.editing >= 0 {
+			fmt.Fprintf(&b, "Editing set #%d:\n", m.editing+1)
+		} else {
+			b.WriteString("Add item set (inches):\n")
+		}
 		b.WriteString(joinInputs(m.itemInputs) + "\n")
 	}
 	if m.err != nil {
 		b.WriteString(badStyle.Render(m.err.Error()) + "\n")
 	}
-	b.WriteString("\n")
+	fmt.Fprintf(&b, "%s\n\n", dimStyle.Render("Merge identical sets: "+onOff(m.merge)))
 
 	b.WriteString(m.setsTable())
 	b.WriteString("\n")
@@ -289,6 +372,13 @@ func (m model) View() string {
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(m.help()) + "\n")
 	return b.String()
+}
+
+func onOff(v bool) string {
+	if v {
+		return "on"
+	}
+	return "off"
 }
 
 func joinInputs(group []textinput.Model) string {
@@ -308,10 +398,14 @@ func (m model) setsTable() string {
 		over[i] = true
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%-3s %5s  %-22s %s\n", "#", "Qty", "L × W × H (in)", "Volume")
+	fmt.Fprintf(&b, "  %-3s %5s  %-22s %s\n", "#", "Qty", "L × W × H (in)", "Volume")
 	for i, s := range m.load.Sets {
 		dims := fmt.Sprintf("%s × %s × %s", fmtNum(s.L), fmtNum(s.W), fmtNum(s.H))
-		line := fmt.Sprintf("%-3d %5d  %-22s %s", i+1, s.Qty, dims, fmtVol(s.TotalVolume()))
+		marker := "  "
+		if m.mode == modeCommand && i == m.sel {
+			marker = "▸ "
+		}
+		line := fmt.Sprintf("%s%-3d %5d  %-22s %s", marker, i+1, s.Qty, dims, fmtVol(s.TotalVolume()))
 		if over[i] {
 			line = badStyle.Render(line + "  ⚠ too big")
 		}
@@ -351,9 +445,12 @@ func (m model) summary() string {
 func (m model) help() string {
 	switch m.mode {
 	case modeCommand:
-		return "d delete last • c clear • e edit cargo • i/enter add items • q quit"
+		return "↑/↓ select • e edit set • d delete set • c clear • m merge on/off • s cargo space • i/enter add • q quit"
 	case modeSpace:
 		return "tab next field • enter apply • esc cancel • ctrl+c quit"
 	}
-	return "tab next field • enter add set • esc commands • ctrl+c quit"
+	if m.editing >= 0 {
+		return "tab next field • enter save • esc cancel • ctrl+c quit"
+	}
+	return "tab next field • enter add set (empty Qty = 1) • esc commands • ctrl+c quit"
 }
