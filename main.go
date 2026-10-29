@@ -28,9 +28,9 @@ func buildLabelIn(raw string, loc *time.Location) string {
 	}
 	local := t.In(loc)
 	if _, offset := local.Zone(); offset == 0 {
-		return "built " + t.UTC().Format("2006-01-02 15:04 UTC")
+		return "built " + t.UTC().Format("2006-01-02 15:04:05 UTC")
 	}
-	return "built " + local.Format("2006-01-02 15:04 MST") + " (" + t.UTC().Format("15:04 UTC") + ")"
+	return "built " + local.Format("2006-01-02 15:04:05 MST") + " (" + t.UTC().Format("15:04 UTC") + ")"
 }
 
 func main() {
