@@ -194,3 +194,55 @@ func TestDollyTooBigMessage(t *testing.T) {
 		t.Errorf("view missing the dolly message:\n%s", m.View())
 	}
 }
+
+func TestHelpOpensAndReturnsToSameMode(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		keys []string
+		want mode
+	}{
+		{"item form", nil, modeItem},
+		{"command mode", []string{"esc"}, modeCommand},
+		{"cargo space form", []string{"esc", "s"}, modeSpace},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := press(newTestModel(true), tc.keys...)
+			m = press(m, "?")
+			if m.mode != modeHelp {
+				t.Fatalf("mode = %v, want help", m.mode)
+			}
+			v := m.View()
+			for _, want := range []string{"deliverd — help", "Command mode", "Saved loads", "-seats up|down", "Press any key"} {
+				if !strings.Contains(v, want) {
+					t.Errorf("help missing %q", want)
+				}
+			}
+			m = press(m, "x") // any key closes it, and is not typed into a field
+			if m.mode != tc.want {
+				t.Errorf("mode = %v, want %v after closing", m.mode, tc.want)
+			}
+			for _, in := range m.itemInputs {
+				if in.Value() != "" {
+					t.Errorf("closing help typed %q into a field", in.Value())
+				}
+			}
+		})
+	}
+}
+
+func TestQuestionMarkIsNotTypedIntoFields(t *testing.T) {
+	m := press(newTestModel(true), "5", "?", "x")
+	if got := m.itemInputs[0].Value(); got != "5" {
+		t.Errorf("L = %q, want 5 (the ? opens help instead of being typed)", got)
+	}
+}
+
+func TestQuestionMarkTypesInSaveName(t *testing.T) {
+	m := typeSet(newSaveModel(t), "10", "10", "10", "1")
+	m = press(m, "esc", "w")
+	m.nameInput.SetValue("")
+	m = press(m, "ok", "?")
+	if m.mode != modeSave || m.nameInput.Value() != "ok?" {
+		t.Errorf("mode=%v name=%q, want the ? typed into the name", m.mode, m.nameInput.Value())
+	}
+}

@@ -20,6 +20,7 @@ const (
 	modeSave                // typing a name to save the items under
 	modeOpen                // choosing a saved load to open
 	modeConfirm             // waiting for y/n
+	modeHelp                // showing the ? screen
 )
 
 var (
@@ -54,6 +55,7 @@ type model struct {
 	status        string
 	confirmPrompt string
 	confirmAction func(*model)
+	helpReturn    mode // mode to go back to when help closes
 }
 
 func newInputs(labels []string) []textinput.Model {
@@ -303,6 +305,8 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateOpen(key)
 		case modeConfirm:
 			return m.updateConfirm(key)
+		case modeHelp:
+			return m.updateHelp(key)
 		default:
 			if next, cmd, handled := m.updateForm(key); handled {
 				return next, cmd
@@ -345,6 +349,8 @@ func (m model) updateCommand(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		m.load.Sets = nil
 		m.sel = 0
+	case "?":
+		m.showHelp()
 	case "D":
 		m.load.Dolly = !m.load.Dolly
 	case "w":
@@ -381,6 +387,8 @@ func (m model) updateForm(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		m.setFocus(group, m.focus+1)
 	case "shift+tab", "up":
 		m.setFocus(group, m.focus-1)
+	case "?":
+		m.showHelp()
 	case "esc":
 		if m.mode == modeSpace {
 			m.enterCommandMode()
@@ -445,6 +453,9 @@ func bar(frac float64, width int) string {
 }
 
 func (m model) View() string {
+	if m.mode == modeHelp {
+		return helpText()
+	}
 	var b strings.Builder
 	sp := m.load.Space
 
@@ -614,9 +625,9 @@ func (m model) packingLine() string {
 func (m model) help() string {
 	switch m.mode {
 	case modeCommand:
-		return "↑/↓ select • e edit set • d delete set • c clear • m merge on/off • r seats up/down • v vehicle • s custom cargo space • D dolly on/off • w save • W save as • o open • i/enter add • q quit"
+		return "? help • ↑/↓ select • e edit set • d delete set • c clear • m merge on/off • r seats up/down • v vehicle • s custom cargo space • D dolly on/off • w save • W save as • o open • i/enter add • q quit"
 	case modeSpace:
-		return "tab next field • enter apply • esc cancel • ctrl+c quit"
+		return "? help • tab next field • enter apply • esc cancel • ctrl+c quit"
 	case modeSave:
 		return "enter save • esc cancel • ctrl+c quit"
 	case modeOpen:
@@ -625,7 +636,7 @@ func (m model) help() string {
 		return "y confirm • any other key cancels"
 	}
 	if m.editing >= 0 {
-		return "tab next field • enter save • esc cancel • ctrl+c quit"
+		return "? help • tab next field • enter save • esc cancel • ctrl+c quit"
 	}
-	return "tab next field • enter add set (empty Qty = 1) • esc commands • ctrl+c quit"
+	return "? help • tab next field • enter add set (empty Qty = 1) • esc commands • ctrl+c quit"
 }
