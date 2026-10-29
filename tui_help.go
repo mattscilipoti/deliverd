@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -32,6 +33,7 @@ var helpSections = []struct {
 		"r                 rear seats up/down",
 		"v                 next vehicle",
 		"s                 type custom cargo dimensions",
+		"L                 show the packing layout (top, side and rear views)",
 		"D                 dolly (48 × 24 × 6 in) on/off",
 		"q                 quit",
 	}},
@@ -74,4 +76,28 @@ func (m *model) showHelp() {
 func (m model) updateHelp(tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.mode = m.helpReturn
 	return m, nil
+}
+
+// showLayout packs the current load and opens the layout screen. Packing runs
+// here, not on every keystroke, because it can be slow for overloaded loads.
+func (m *model) showLayout() {
+	m.layoutPack = m.load.Pack()
+	m.helpReturn = m.mode
+	m.mode = modeLayout
+}
+
+func (m model) layoutWidth() int {
+	if m.width > 0 {
+		return m.width
+	}
+	return 80
+}
+
+func (m model) layoutHeader() string {
+	c := m.load.Space
+	name := "Custom cargo space"
+	if !m.custom {
+		name = Vehicles[m.vehicle].Name + ", " + seatsLabel(m.seatsDown)
+	}
+	return fmt.Sprintf("%s (%s × %s × %s in)", name, fmtNum(c.L), fmtNum(c.W), fmtNum(c.H))
 }

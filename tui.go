@@ -21,6 +21,7 @@ const (
 	modeOpen                // choosing a saved load to open
 	modeConfirm             // waiting for y/n
 	modeHelp                // showing the ? screen
+	modeLayout              // showing the packing layout views
 )
 
 var (
@@ -55,7 +56,10 @@ type model struct {
 	status        string
 	confirmPrompt string
 	confirmAction func(*model)
-	helpReturn    mode // mode to go back to when help closes
+	helpReturn    mode // mode to go back to when help or the layout closes
+
+	width      int     // terminal width from the last WindowSizeMsg; 0 until known
+	layoutPack Packing // packing computed when the layout was opened
 }
 
 func newInputs(labels []string) []textinput.Model {
@@ -289,6 +293,10 @@ func (m *model) refreshPack() {
 }
 
 func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if ws, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = ws.Width
+		return m, nil
+	}
 	key, isKey := msg.(tea.KeyMsg)
 	if isKey {
 		if key.String() == "ctrl+c" {
@@ -305,7 +313,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateOpen(key)
 		case modeConfirm:
 			return m.updateConfirm(key)
-		case modeHelp:
+		case modeHelp, modeLayout:
 			return m.updateHelp(key)
 		default:
 			if next, cmd, handled := m.updateForm(key); handled {
@@ -351,6 +359,8 @@ func (m model) updateCommand(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.sel = 0
 	case "?":
 		m.showHelp()
+	case "L":
+		m.showLayout()
 	case "D":
 		m.load.Dolly = !m.load.Dolly
 	case "w":
@@ -453,8 +463,11 @@ func bar(frac float64, width int) string {
 }
 
 func (m model) View() string {
-	if m.mode == modeHelp {
+	switch m.mode {
+	case modeHelp:
 		return helpText()
+	case modeLayout:
+		return renderLayout(m.load, m.layoutPack, m.layoutHeader(), m.layoutWidth())
 	}
 	var b strings.Builder
 	sp := m.load.Space
@@ -625,7 +638,7 @@ func (m model) packingLine() string {
 func (m model) help() string {
 	switch m.mode {
 	case modeCommand:
-		return "? help • ↑/↓ select • e edit set • d delete set • c clear • m merge on/off • r seats up/down • v vehicle • s custom cargo space • D dolly on/off • w save • W save as • o open • i/enter add • q quit"
+		return "? help • ↑/↓ select • e edit set • d delete set • c clear • m merge on/off • r seats up/down • v vehicle • s custom cargo space • L layout • D dolly on/off • w save • W save as • o open • i/enter add • q quit"
 	case modeSpace:
 		return "? help • tab next field • enter apply • esc cancel • ctrl+c quit"
 	case modeSave:

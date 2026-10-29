@@ -246,3 +246,58 @@ func TestQuestionMarkTypesInSaveName(t *testing.T) {
 		t.Errorf("mode=%v name=%q, want the ? typed into the name", m.mode, m.nameInput.Value())
 	}
 }
+
+func TestLayoutOpensAndReturns(t *testing.T) {
+	m := typeSet(newTestModel(true), "40", "30", "20", "2")
+	m = press(m, "esc", "L")
+	if m.mode != modeLayout {
+		t.Fatalf("mode = %v, want layout", m.mode)
+	}
+	v := m.View()
+	for _, want := range []string{"layout (approximate)", "Top view", "Side view", "Rear view", "2013 Toyota Prius v", "placed 2 of 2"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("layout missing %q:\n%s", want, v)
+		}
+	}
+	m = press(m, "x")
+	if m.mode != modeCommand {
+		t.Errorf("mode = %v, want command mode after closing", m.mode)
+	}
+}
+
+func TestLayoutWorksWhenOverCapacity(t *testing.T) {
+	m := newModel(options{seatsDown: true, merge: true, override: Dims{L: 10, W: 10, H: 10}})
+	m = typeSet(m, "6", "6", "6", "3")
+	m = press(m, "esc", "L")
+	if v := m.View(); !strings.Contains(v, "2 not placed") {
+		t.Errorf("layout should show what could not be placed:\n%s", v)
+	}
+	if !strings.Contains(m.View(), "Custom cargo space") {
+		t.Error("header should say the cargo space is custom")
+	}
+}
+
+func TestWindowSizeChangesLayoutScale(t *testing.T) {
+	m := typeSet(newTestModel(true), "40", "30", "20", "1")
+	m = press(m, "esc")
+	resize := func(w int) model {
+		next, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: 40})
+		return next.(model)
+	}
+	narrow, wide := resize(80), resize(150)
+	if narrow.width != 80 || wide.width != 150 {
+		t.Fatalf("widths = %d, %d", narrow.width, wide.width)
+	}
+	narrow, wide = press(narrow, "L"), press(wide, "L")
+	if !strings.Contains(narrow.View(), "One column ≈ 2 in") || !strings.Contains(wide.View(), "One column ≈ 1 in") {
+		t.Errorf("scale should shrink with width:\n%s\n%s", narrow.View(), wide.View())
+	}
+}
+
+func TestLayoutDefaultsTo80Columns(t *testing.T) {
+	m := typeSet(newTestModel(true), "40", "30", "20", "1")
+	m = press(m, "esc", "L")
+	if m.width != 0 || !strings.Contains(m.View(), "One column ≈ 2 in") {
+		t.Errorf("width=%d; an unknown width should lay out as 80 columns", m.width)
+	}
+}
