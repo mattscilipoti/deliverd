@@ -17,6 +17,9 @@ const (
 	modeItem    mode = iota // typing a new item set
 	modeCommand             // item inputs blurred; single-key commands active
 	modeSpace               // editing cargo dimensions
+	modeSave                // typing a name to save the items under
+	modeOpen                // choosing a saved load to open
+	modeConfirm             // waiting for y/n
 )
 
 var (
@@ -41,6 +44,16 @@ type model struct {
 	packKey    string // load the cached pack was computed for
 	sel        int    // selected set in command mode
 	editing    int    // index of the set being edited, or -1
+
+	store         Store
+	loadName      string // saved load currently open, or ""
+	savedKey      string // setsKey of the items as last saved or opened
+	nameInput     textinput.Model
+	openNames     []string
+	openSel       int
+	status        string
+	confirmPrompt string
+	confirmAction func(*model)
 }
 
 func newInputs(labels []string) []textinput.Model {
@@ -61,6 +74,7 @@ type options struct {
 	seatsDown bool
 	merge     bool
 	override  Dims
+	storeDir  string // where saved loads live; empty disables saving
 }
 
 func newModel(o options) model {
@@ -71,7 +85,13 @@ func newModel(o options) model {
 		spcInputs:  newInputs([]string{"L", "W", "H"}),
 		merge:      o.merge,
 		editing:    -1,
+		store:      Store{Dir: o.storeDir},
+		savedKey:   setsKey(nil),
 	}
+	m.nameInput = textinput.New()
+	m.nameInput.Prompt = "Name: "
+	m.nameInput.CharLimit = 60
+	m.nameInput.Width = 30
 	m.usePreset()
 	for _, f := range []struct {
 		v   float64
@@ -187,6 +207,7 @@ func (m *model) enterCommandMode() {
 	m.err = nil
 	blurAll(m.itemInputs)
 	blurAll(m.spcInputs)
+	m.nameInput.Blur()
 	m.clampSel()
 }
 
@@ -269,9 +290,17 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if key.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
+		m.status = ""
+		m.err = nil
 		switch m.mode {
 		case modeCommand:
 			return m.updateCommand(key)
+		case modeSave:
+			return m.updateSave(key)
+		case modeOpen:
+			return m.updateOpen(key)
+		case modeConfirm:
+			return m.updateConfirm(key)
 		default:
 			if next, cmd, handled := m.updateForm(key); handled {
 				return next, cmd
@@ -280,6 +309,11 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Pass everything else (typing, blink) to the focused input.
+	if m.mode == modeSave {
+		var cmd tea.Cmd
+		m.nameInput, cmd = m.nameInput.Update(msg)
+		return m, cmd
+	}
 	group := m.active()
 	if group == nil {
 		return m, nil
@@ -309,6 +343,12 @@ func (m model) updateCommand(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		m.load.Sets = nil
 		m.sel = 0
+	case "w":
+		m.saveCurrent()
+	case "W":
+		m.beginSaveAs()
+	case "o":
+		m.beginOpen()
 	case "s":
 		m.enterSpaceMode()
 	case "v":
@@ -420,10 +460,17 @@ func (m model) View() string {
 	}
 	b.WriteString("\n")
 
-	if m.mode == modeSpace {
+	switch m.mode {
+	case modeSpace:
 		b.WriteString("Edit cargo space (inches):\n")
 		b.WriteString(joinInputs(m.spcInputs) + "\n")
-	} else {
+	case modeSave:
+		b.WriteString(m.saveView())
+	case modeOpen:
+		b.WriteString(m.openView())
+	case modeConfirm:
+		b.WriteString(badStyle.Render(m.confirmPrompt) + "\n")
+	default:
 		if m.editing >= 0 {
 			fmt.Fprintf(&b, "Editing set #%d:\n", m.editing+1)
 		} else {
@@ -434,7 +481,10 @@ func (m model) View() string {
 	if m.err != nil {
 		b.WriteString(badStyle.Render(m.err.Error()) + "\n")
 	}
-	fmt.Fprintf(&b, "%s\n\n", dimStyle.Render("Merge identical sets: "+onOff(m.merge)))
+	if m.status != "" {
+		b.WriteString(okStyle.Render(m.status) + "\n")
+	}
+	fmt.Fprintf(&b, "%s\n%s\n\n", dimStyle.Render(m.loadLine()), dimStyle.Render("Merge identical sets: "+onOff(m.merge)))
 
 	b.WriteString(m.setsTable())
 	b.WriteString("\n")
@@ -540,9 +590,15 @@ func (m model) packingLine() string {
 func (m model) help() string {
 	switch m.mode {
 	case modeCommand:
-		return "↑/↓ select • e edit set • d delete set • c clear • m merge on/off • r seats up/down • v vehicle • s custom cargo space • i/enter add • q quit"
+		return "↑/↓ select • e edit set • d delete set • c clear • m merge on/off • r seats up/down • v vehicle • s custom cargo space • w save • W save as • o open • i/enter add • q quit"
 	case modeSpace:
 		return "tab next field • enter apply • esc cancel • ctrl+c quit"
+	case modeSave:
+		return "enter save • esc cancel • ctrl+c quit"
+	case modeOpen:
+		return "↑/↓ select • enter open • esc cancel • ctrl+c quit"
+	case modeConfirm:
+		return "y confirm • any other key cancels"
 	}
 	if m.editing >= 0 {
 		return "tab next field • enter save • esc cancel • ctrl+c quit"
