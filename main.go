@@ -40,11 +40,16 @@ func main() {
 	flag.Float64Var(&o.override.H, "height", 0, "override cargo height in inches")
 	flag.BoolVar(&o.merge, "merge", true, "combine item sets with identical dimensions")
 	seats := flag.String("seats", "down", "rear seats: up or down")
-	flag.BoolVar(&o.dolly, "dolly", false, "include the 48x24x6 in dolly in the load")
+	dollyFlag := flag.String("dolly", "off", `dolly: "off", "seats" (stowed behind the seats, not counted) or "items" (packed with the items)`)
 	version := flag.Bool("version", false, "print the build time and exit")
 	dir := flag.String("dir", "", "directory for saved loads (default: user config dir)")
 	flag.Parse()
 
+	var err error
+	if o.dolly, err = ParseDollyMode(*dollyFlag); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	if *version {
 		fmt.Println("deliverd", buildLabel())
 		return

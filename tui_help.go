@@ -33,8 +33,8 @@ var helpSections = []struct {
 		"r                 rear seats up/down",
 		"v                 next vehicle",
 		"s                 type custom cargo dimensions",
-		"L                 show the packing layout (D there toggles the dolly)",
-		"D                 dolly (48 × 24 × 6 in) on/off",
+		"L                 show the packing layout (D there cycles the dolly)",
+		"D                 dolly: off → behind seats (not counted) → with items (48 × 24 × 6 in)",
 		"q                 quit",
 	}},
 	{"Saved loads (command mode)", []string{
@@ -49,7 +49,7 @@ var helpSections = []struct {
 	{"Flags", []string{
 		"-seats up|down    rear seats (default down)",
 		"-length -width -height   override the cargo size, in inches",
-		"-dolly            start with the dolly included",
+		"-dolly off|seats|items   where the dolly goes (default off)",
 		"-merge=false      keep identical sets separate",
 		"-dir PATH         where saved loads live (default: your config dir)",
 		"-version          print the build time and exit",
@@ -103,10 +103,10 @@ func (m model) layoutHeader() string {
 	return fmt.Sprintf("%s (%s × %s × %s in)", name, fmtNum(c.L), fmtNum(c.W), fmtNum(c.H))
 }
 
-// updateLayout lets D toggle the dolly and redraws; any other key returns.
+// updateLayout lets D cycle the dolly and redraws; any other key returns.
 func (m model) updateLayout(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key.String() == "D" {
-		m.load.Dolly = !m.load.Dolly
+		m.load.Dolly = m.load.Dolly.Next()
 		m.layoutPack = m.load.Pack()
 		return m, nil
 	}

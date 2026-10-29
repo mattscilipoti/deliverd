@@ -25,7 +25,7 @@ type view struct {
 // labelFor names entry i of Load.All(): A–Z, then a–z, then * once those run
 // out. The dolly, when included, is always the last entry and gets =.
 func labelFor(l Load, i int) rune {
-	if l.Dolly && i == len(l.Sets) {
+	if l.DollyPacked() && i == len(l.Sets) {
 		return dollyLabel
 	}
 	switch {
@@ -135,7 +135,7 @@ func buildViews(sp Dims, placed []Placement, s float64) views {
 var layoutPalette = []lipgloss.Color{"1", "2", "3", "4", "5", "6", "9", "10", "11", "12", "13", "14"}
 
 func entryStyle(l Load, i int) lipgloss.Style {
-	if l.Dolly && i == len(l.Sets) {
+	if l.DollyPacked() && i == len(l.Sets) {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Bold(true)
 	}
 	return lipgloss.NewStyle().Foreground(layoutPalette[i%len(layoutPalette)]).Bold(true)
@@ -175,8 +175,7 @@ func indent(s string) string {
 func renderLayout(l Load, p Packing, header string, width int) string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("deliverd — layout (approximate)") + "\n" + header + "\n")
-	b.WriteString(dimStyle.Render(fmt.Sprintf("Dolly (%s × %s × %s in): %s",
-		fmtNum(Dolly.L), fmtNum(Dolly.W), fmtNum(Dolly.H), onOff(l.Dolly))) + "\n\n")
+	b.WriteString(dimStyle.Render("Dolly: "+dollyText(l.Dolly)) + "\n\n")
 
 	entries := l.All()
 	switch {
@@ -214,7 +213,7 @@ func renderLayout(l Load, p Packing, header string, width int) string {
 		b.WriteString("\n")
 		b.WriteString(legend(l, p))
 	}
-	b.WriteString("\n" + dimStyle.Render("D dolly on/off • any other key returns") + "\n")
+	b.WriteString("\n" + dimStyle.Render("D dolly: off / behind seats / with items • any other key returns") + "\n")
 	return b.String()
 }
 
@@ -226,7 +225,7 @@ func legend(l Load, p Packing) string {
 	var b strings.Builder
 	for i, s := range l.All() {
 		name := fmt.Sprintf("set #%d", i+1)
-		if l.Dolly && i == len(l.Sets) {
+		if l.DollyPacked() && i == len(l.Sets) {
 			name = "dolly"
 		}
 		line := fmt.Sprintf("%s  %-7s %2d × %s×%s×%s in   placed %d of %d",

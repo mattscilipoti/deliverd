@@ -124,7 +124,7 @@ func TestDollyCountsTowardUsedVolume(t *testing.T) {
 	if got := l.Used(); got != 1000 {
 		t.Fatalf("Used without dolly = %v, want 1000", got)
 	}
-	l.Dolly = true
+	l.Dolly = DollyWithItems
 	if got := l.Used(); got != 1000+48*24*6 {
 		t.Errorf("Used with dolly = %v, want %v", got, 1000+48*24*6)
 	}
@@ -134,9 +134,40 @@ func TestDollyCountsTowardUsedVolume(t *testing.T) {
 }
 
 func TestDollyTooBigForSpace(t *testing.T) {
-	l := Load{Space: Dims{40, 20, 10}, Dolly: true}
+	l := Load{Space: Dims{40, 20, 10}, Dolly: DollyWithItems}
 	got := l.Oversized()
 	if len(got) != 1 || got[0] != len(l.Sets) || l.Fits() {
 		t.Errorf("Oversized=%v Fits=%v, want the dolly flagged and not fitting", got, l.Fits())
+	}
+}
+
+func TestDollyBehindSeatsTakesNoCargoSpace(t *testing.T) {
+	l := Load{Space: Dims{40, 20, 10}, Sets: []ItemSet{{1, Dims{10, 10, 10}}}}
+	base := l.Used()
+	l.Dolly = DollyBehindSeats
+	// The dolly would not fit this box if it were counted.
+	if l.Used() != base || len(l.All()) != 1 || len(l.Oversized()) != 0 || !l.Fits() {
+		t.Errorf("Used=%v All=%v Oversized=%v Fits=%v; a stowed dolly should be ignored",
+			l.Used(), l.All(), l.Oversized(), l.Fits())
+	}
+}
+
+func TestDollyModeCycleAndParse(t *testing.T) {
+	m := DollyOff
+	var seen []DollyMode
+	for i := 0; i < 4; i++ {
+		m = m.Next()
+		seen = append(seen, m)
+	}
+	if seen[0] != DollyBehindSeats || seen[1] != DollyWithItems || seen[2] != DollyOff || seen[3] != DollyBehindSeats {
+		t.Errorf("cycle = %v, want behind seats, with items, off, behind seats", seen)
+	}
+	for in, want := range map[string]DollyMode{"off": DollyOff, "": DollyOff, "seats": DollyBehindSeats, "items": DollyWithItems} {
+		if got, err := ParseDollyMode(in); err != nil || got != want {
+			t.Errorf("ParseDollyMode(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	if _, err := ParseDollyMode("garage"); err == nil {
+		t.Error("ParseDollyMode accepted an unknown value")
 	}
 }

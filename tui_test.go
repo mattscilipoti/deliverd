@@ -160,36 +160,44 @@ func TestPackingFailureShownAsWarning(t *testing.T) {
 	}
 }
 
-func TestDollyToggle(t *testing.T) {
+func TestDollyCyclesThroughLocations(t *testing.T) {
 	m := typeSet(newTestModel(true), "10", "10", "10", "1")
 	base := m.load.Used()
-	m = press(m, "esc", "D")
-	if !m.load.Dolly || m.load.Used() != base+Dolly.Volume() {
-		t.Fatalf("Dolly=%v Used=%v, want dolly added to used volume", m.load.Dolly, m.load.Used())
+	m = press(m, "esc", "D") // behind the seats: shown, but takes no cargo space
+	if m.load.Dolly != DollyBehindSeats || m.load.Used() != base {
+		t.Fatalf("Dolly=%v Used=%v, want behind seats and nothing counted", m.load.Dolly, m.load.Used())
 	}
 	v := m.View()
-	for _, want := range []string{"Dolly (48 × 24 × 6 in): on", "dolly", "found a layout for all 2 pieces"} {
+	if !strings.Contains(v, "Dolly: behind seats (not counted)") || strings.Contains(v, "  dolly") {
+		t.Errorf("behind-seats view:\n%s", v)
+	}
+	m = press(m, "D") // with the items: counted and packed
+	if m.load.Dolly != DollyWithItems || m.load.Used() != base+Dolly.Volume() {
+		t.Fatalf("Dolly=%v Used=%v, want the dolly added to used volume", m.load.Dolly, m.load.Used())
+	}
+	v = m.View()
+	for _, want := range []string{"Dolly: with items (48 × 24 × 6 in, packed to fit)", "dolly", "found a layout for all 2 pieces"} {
 		if !strings.Contains(v, want) {
-			t.Errorf("view missing %q:\n%s", want, v)
+			t.Errorf("with-items view missing %q:\n%s", want, v)
 		}
 	}
 	m = press(m, "D")
-	if m.load.Dolly || m.load.Used() != base || !strings.Contains(m.View(), "Dolly (48 × 24 × 6 in): off") {
-		t.Errorf("Dolly=%v Used=%v, want it removed", m.load.Dolly, m.load.Used())
+	if m.load.Dolly != DollyOff || m.load.Used() != base || !strings.Contains(m.View(), "Dolly: off") {
+		t.Errorf("Dolly=%v Used=%v, want it off again", m.load.Dolly, m.load.Used())
 	}
 }
 
 func TestDollyDoesNotAffectSetEditing(t *testing.T) {
-	m := newModel(options{seatsDown: true, merge: true, dolly: true})
+	m := newModel(options{seatsDown: true, merge: true, dolly: DollyWithItems})
 	m = typeSet(m, "10", "10", "10", "1")
 	m = press(m, "esc", "j", "j", "d") // selection can't move onto the dolly
-	if len(m.load.Sets) != 0 || !m.load.Dolly {
+	if len(m.load.Sets) != 0 || m.load.Dolly != DollyWithItems {
 		t.Errorf("Sets=%v Dolly=%v, want the set deleted and the dolly kept", m.load.Sets, m.load.Dolly)
 	}
 }
 
 func TestDollyTooBigMessage(t *testing.T) {
-	m := newModel(options{seatsDown: true, merge: true, dolly: true, override: Dims{L: 40, W: 20, H: 10}})
+	m := newModel(options{seatsDown: true, merge: true, dolly: DollyWithItems, override: Dims{L: 40, W: 20, H: 10}})
 	m = typeSet(m, "5", "5", "5", "1")
 	if !strings.Contains(m.View(), "The dolly is too big for the cargo space") {
 		t.Errorf("view missing the dolly message:\n%s", m.View())
@@ -344,32 +352,39 @@ func TestBuildLabelLocalTimeZone(t *testing.T) {
 	}
 }
 
-func TestDollyToggleInsideLayout(t *testing.T) {
+func TestDollyCycleInsideLayout(t *testing.T) {
 	m := typeSet(newTestModel(true), "40", "30", "20", "1")
 	m = press(m, "esc", "L")
-	if m.load.Dolly || !strings.Contains(m.View(), "Dolly (48 × 24 × 6 in): off") || strings.Contains(m.View(), "=  dolly") {
+	if m.load.Dolly != DollyOff || !strings.Contains(m.View(), "Dolly: off") || strings.Contains(m.View(), "=  dolly") {
 		t.Fatalf("dolly should start off:\n%s", m.View())
 	}
 	m = press(m, "D")
+	if v := m.View(); m.mode != modeLayout || !strings.Contains(v, "Dolly: behind seats (not counted)") || strings.Contains(v, "=  dolly") {
+		t.Fatalf("a stowed dolly should be named but not drawn:\n%s", v)
+	}
+	m = press(m, "D")
 	v := m.View()
-	if m.mode != modeLayout || !m.load.Dolly || !strings.Contains(v, "Dolly (48 × 24 × 6 in): on") || !strings.Contains(v, "=  dolly") {
-		t.Fatalf("mode=%v dolly=%v; D should add the dolly and stay on the layout:\n%s", m.mode, m.load.Dolly, v)
+	if m.mode != modeLayout || !strings.Contains(v, "Dolly: with items") || !strings.Contains(v, "=  dolly") || !strings.Contains(v, "placed 1 of 1") {
+		t.Fatalf("mode=%v; the dolly should be drawn and in the legend:\n%s", m.mode, v)
 	}
-	if !strings.Contains(v, "=") || !strings.Contains(v, "placed 1 of 1") {
-		t.Errorf("dolly missing from the drawing or legend:\n%s", v)
+	if m = press(m, "D"); m.load.Dolly != DollyOff || m.mode != modeLayout {
+		t.Errorf("third D should turn it off: dolly=%v mode=%v", m.load.Dolly, m.mode)
 	}
-	if m = press(m, "D"); m.load.Dolly || m.mode != modeLayout {
-		t.Errorf("second D should remove it: dolly=%v mode=%v", m.load.Dolly, m.mode)
-	}
-	m = press(m, "x")
-	if m.mode != modeCommand {
+	if m = press(m, "x"); m.mode != modeCommand {
 		t.Errorf("mode = %v, want command mode after another key", m.mode)
 	}
 }
 
 func TestLayoutShowsDollyAlone(t *testing.T) {
-	m := press(newTestModel(true), "esc", "D", "L")
+	m := press(newTestModel(true), "esc", "D", "D", "L") // D twice: with items
 	if v := m.View(); !strings.Contains(v, "Driver side") || !strings.Contains(v, "=  dolly") {
 		t.Errorf("a dolly with no item sets should still draw:\n%s", v)
+	}
+}
+
+func TestStowedDollyAloneHasNothingToDraw(t *testing.T) {
+	m := press(newTestModel(true), "esc", "D", "L")
+	if v := m.View(); !strings.Contains(v, "Nothing to show") || !strings.Contains(v, "behind seats") {
+		t.Errorf("a stowed dolly takes no cargo space, so there is nothing to draw:\n%s", v)
 	}
 }

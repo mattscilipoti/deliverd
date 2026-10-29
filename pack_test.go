@@ -85,7 +85,7 @@ func TestPackEmptyLoad(t *testing.T) {
 func TestPackIncludesDolly(t *testing.T) {
 	// 50x24x12 fits the 48x24x6 dolly with a 10x10x6 box on top.
 	l := load(Dims{50, 24, 12}, ItemSet{1, Dims{10, 10, 6}})
-	l.Dolly = true
+	l.Dolly = DollyWithItems
 	p := l.Pack()
 	if !p.AllPlaced() || len(p.Placed) != 2 || p.Total != 2 {
 		t.Errorf("placed=%d unplaced=%v total=%d, want dolly and box placed", len(p.Placed), p.Unplaced, p.Total)
@@ -95,12 +95,20 @@ func TestPackIncludesDolly(t *testing.T) {
 func TestPackDollyLeavesNoRoom(t *testing.T) {
 	// Volume and sizes pass, but the dolly fills the 24 in width and leaves 12 in of length.
 	l := load(Dims{60, 24, 6}, ItemSet{1, Dims{13, 13, 6}})
-	l.Dolly = true
+	l.Dolly = DollyWithItems
 	if !l.Fits() {
 		t.Fatal("setup: should pass the volume and size checks")
 	}
 	p := l.Pack()
 	if p.AllPlaced() || p.UnplacedTotal() != 1 {
 		t.Errorf("unplaced=%v, want exactly the box unplaced", p.Unplaced)
+	}
+}
+
+func TestPackIgnoresDollyBehindSeats(t *testing.T) {
+	l := load(Dims{10, 10, 10}, ItemSet{1, Dims{10, 10, 10}})
+	l.Dolly = DollyBehindSeats
+	if p := l.Pack(); !p.AllPlaced() || p.Total != 1 {
+		t.Errorf("Total=%d AllPlaced=%v, want only the item packed", p.Total, p.AllPlaced())
 	}
 }

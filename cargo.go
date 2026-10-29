@@ -1,6 +1,9 @@
 package main
 
-import "sort"
+import (
+	"fmt"
+	"sort"
+)
 
 const cubicInchesPerCubicFoot = 1728
 
@@ -37,19 +40,62 @@ type ItemSet struct {
 
 func (s ItemSet) TotalVolume() float64 { return float64(s.Qty) * s.Volume() }
 
-// Dolly is optional equipment that rides in the car and takes up cargo space.
+// Dolly is optional equipment: 48 × 24 × 6 in when it rides with the items.
 var Dolly = ItemSet{Qty: 1, Dims: Dims{L: 48, W: 24, H: 6}}
+
+// DollyMode says where the dolly goes.
+type DollyMode int
+
+const (
+	DollyOff DollyMode = iota
+	// DollyBehindSeats stows it lengthwise behind the seats, where it takes
+	// almost no cargo space, so it is not counted or packed.
+	DollyBehindSeats
+	// DollyWithItems carries it in the cargo area, packed like an item and
+	// free to rotate to fit around the products.
+	DollyWithItems
+)
+
+// Next cycles off, behind seats, with items.
+func (d DollyMode) Next() DollyMode { return (d + 1) % 3 }
+
+// ParseDollyMode reads the -dolly flag: off, seats or items.
+func ParseDollyMode(s string) (DollyMode, error) {
+	switch s {
+	case "off", "":
+		return DollyOff, nil
+	case "seats":
+		return DollyBehindSeats, nil
+	case "items":
+		return DollyWithItems, nil
+	}
+	return DollyOff, fmt.Errorf(`-dolly must be "off", "seats" or "items"`)
+}
+
+// dollyText describes the mode for the main and layout screens.
+func dollyText(d DollyMode) string {
+	switch d {
+	case DollyBehindSeats:
+		return "behind seats (not counted)"
+	case DollyWithItems:
+		return fmt.Sprintf("with items (%s × %s × %s in, packed to fit)", fmtNum(Dolly.L), fmtNum(Dolly.W), fmtNum(Dolly.H))
+	}
+	return "off"
+}
 
 type Load struct {
 	Space Dims
 	Sets  []ItemSet
-	Dolly bool // include the dolly alongside Sets
+	Dolly DollyMode
 }
 
-// All is Sets followed by the dolly when it is included. The dolly is always
-// last, so an index equal to len(Sets) refers to it.
+// DollyPacked reports whether the dolly is counted and packed with the items.
+func (l Load) DollyPacked() bool { return l.Dolly == DollyWithItems }
+
+// All is Sets followed by the dolly when it rides with the items. The dolly is
+// always last, so an index equal to len(Sets) refers to it.
 func (l Load) All() []ItemSet {
-	if !l.Dolly {
+	if !l.DollyPacked() {
 		return l.Sets
 	}
 	return append(append([]ItemSet(nil), l.Sets...), Dolly)

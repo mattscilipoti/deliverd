@@ -117,18 +117,18 @@ func TestLabels(t *testing.T) {
 			t.Errorf("labelFor(%d) = %c, want %c", i, got, want)
 		}
 	}
-	l = Load{Sets: make([]ItemSet, 2), Dolly: true}
+	l = Load{Sets: make([]ItemSet, 2), Dolly: DollyWithItems}
 	if labelFor(l, 2) != '=' || labelFor(l, 1) != 'B' {
 		t.Error("the dolly, last in All(), should be =, and sets keep their letters")
 	}
 }
 
 func TestRenderLayoutLegendAndContent(t *testing.T) {
-	l := Load{Space: Dims{60, 24, 12}, Dolly: true, Sets: []ItemSet{{2, Dims{10, 10, 6}}, {1, Dims{100, 5, 5}}}}
+	l := Load{Space: Dims{60, 24, 12}, Dolly: DollyWithItems, Sets: []ItemSet{{2, Dims{10, 10, 6}}, {1, Dims{100, 5, 5}}}}
 	out := renderLayout(l, l.Pack(), "Test car", 80)
 	for _, want := range []string{
 		"Top view", "Rear view", "Driver side", "Passenger side", "front", "hatch", "driver", "passenger", "Test car",
-		"A  set #1", "placed 2 of 2", "=  dolly", "B  set #2", "1 not placed", "any other key returns", "Dolly (48 × 24 × 6 in): on",
+		"A  set #1", "placed 2 of 2", "=  dolly", "B  set #2", "1 not placed", "any other key returns", "Dolly: with items (48 × 24 × 6 in, packed to fit)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("layout missing %q:\n%s", want, out)

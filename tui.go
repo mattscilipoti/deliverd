@@ -80,7 +80,7 @@ type options struct {
 	seatsDown bool
 	merge     bool
 	override  Dims
-	dolly     bool
+	dolly     DollyMode
 	storeDir  string // where saved loads live; empty disables saving
 }
 
@@ -364,7 +364,7 @@ func (m model) updateCommand(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "L":
 		m.showLayout()
 	case "D":
-		m.load.Dolly = !m.load.Dolly
+		m.load.Dolly = m.load.Dolly.Next()
 	case "w":
 		m.saveCurrent()
 	case "W":
@@ -514,8 +514,7 @@ func (m model) View() string {
 	if m.status != "" {
 		b.WriteString(okStyle.Render(m.status) + "\n")
 	}
-	fmt.Fprintf(&b, "%s\n%s\n\n", dimStyle.Render(m.loadLine()), dimStyle.Render(fmt.Sprintf("Merge identical sets: %s • Dolly (%s × %s × %s in): %s",
-		onOff(m.merge), fmtNum(Dolly.L), fmtNum(Dolly.W), fmtNum(Dolly.H), onOff(m.load.Dolly))))
+	fmt.Fprintf(&b, "%s\n%s\n\n", dimStyle.Render(m.loadLine()), dimStyle.Render("Merge identical sets: "+onOff(m.merge)+" • Dolly: "+dollyText(m.load.Dolly)))
 
 	b.WriteString(m.setsTable())
 	b.WriteString("\n")
@@ -543,7 +542,7 @@ func joinInputs(group []textinput.Model) string {
 }
 
 func (m model) setsTable() string {
-	if len(m.load.Sets) == 0 && !m.load.Dolly {
+	if len(m.load.Sets) == 0 && !m.load.DollyPacked() {
 		return dimStyle.Render("No item sets yet.") + "\n"
 	}
 	over := map[int]bool{}
@@ -564,7 +563,7 @@ func (m model) setsTable() string {
 		}
 		b.WriteString(line + "\n")
 	}
-	if m.load.Dolly {
+	if m.load.DollyPacked() {
 		d := Dolly
 		line := fmt.Sprintf("  %-3s %5d  %-22s %s", "–", d.Qty,
 			fmt.Sprintf("%s × %s × %s", fmtNum(d.L), fmtNum(d.W), fmtNum(d.H)), fmtVol(d.TotalVolume())+"  dolly")
@@ -640,7 +639,7 @@ func (m model) packingLine() string {
 func (m model) help() string {
 	switch m.mode {
 	case modeCommand:
-		return "? help • ↑/↓ select • e edit set • d delete set • c clear • m merge on/off • r seats up/down • v vehicle • s custom cargo space • L layout • D dolly on/off • w save • W save as • o open • i/enter add • q quit"
+		return "? help • ↑/↓ select • e edit set • d delete set • c clear • m merge on/off • r seats up/down • v vehicle • s custom cargo space • L layout • D dolly • w save • W save as • o open • i/enter add • q quit"
 	case modeSpace:
 		return "? help • tab next field • enter apply • esc cancel • ctrl+c quit"
 	case modeSave:
