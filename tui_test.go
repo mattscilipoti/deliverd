@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -126,5 +127,34 @@ func TestDeleteSelected(t *testing.T) {
 	m = press(m, "esc", "k", "d") // sel starts on the last set; k moves to the middle
 	if len(m.load.Sets) != 2 || m.load.Sets[0].L != 1 || m.load.Sets[1].L != 3 {
 		t.Errorf("Sets = %v, want sets 1 and 3 remaining", m.load.Sets)
+	}
+}
+
+func TestPackingLineAppearsAndUpdates(t *testing.T) {
+	m := newModel(options{seatsDown: true, merge: true, override: Dims{L: 20, W: 10, H: 10}})
+	m = typeSet(m, "10", "10", "10", "2")
+	if !m.pack.AllPlaced() || !strings.Contains(m.View(), "Packing heuristic found a layout for all 2 pieces") {
+		t.Fatalf("pack=%+v\n%s", m.pack, m.View())
+	}
+	// Three cubes: the volume check fails first, so packing is not attempted.
+	m = typeSet(m, "10", "10", "10", "1")
+	if m.pack.Total != 0 || strings.Contains(m.View(), "Packing heuristic") {
+		t.Errorf("packing should be hidden when volume already fails: %+v", m.pack)
+	}
+}
+
+func TestPackingFailureShownAsWarning(t *testing.T) {
+	// Two 6 in cubes pass the volume (432 of 1000) and size checks in a 10 in
+	// cube, but cannot both be placed, so the packing line should warn.
+	m := newModel(options{seatsDown: true, merge: true, override: Dims{L: 10, W: 10, H: 10}})
+	m = typeSet(m, "6", "6", "6", "2")
+	if !m.load.Fits() {
+		t.Fatal("setup: load should pass the volume and size checks")
+	}
+	v := m.View()
+	for _, want := range []string{"✅ Passes volume and item-size checks", "placed 1 of 2 pieces", "set #1 ×1"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("view missing %q:\n%s", want, v)
+		}
 	}
 }

@@ -37,8 +37,10 @@ type model struct {
 	vehicle    int  // index into Vehicles
 	seatsDown  bool
 	custom     bool // cargo space was overridden by hand or by flags
-	sel        int  // selected set in command mode
-	editing    int  // index of the set being edited, or -1
+	pack       Packing
+	packKey    string // load the cached pack was computed for
+	sel        int    // selected set in command mode
+	editing    int    // index of the set being edited, or -1
 }
 
 func newInputs(labels []string) []textinput.Model {
@@ -241,6 +243,27 @@ func (m *model) enterSpaceMode() {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	nm := next.(model)
+	nm.refreshPack()
+	return nm, cmd
+}
+
+// refreshPack reruns the packing heuristic only when the load or space changed.
+// It is skipped when the cheap volume and size checks already fail.
+func (m *model) refreshPack() {
+	key := fmt.Sprint(m.load.Space, m.load.Sets)
+	if key == m.packKey {
+		return
+	}
+	m.packKey = key
+	m.pack = Packing{}
+	if len(m.load.Sets) > 0 && m.load.Fits() {
+		m.pack = m.load.Pack()
+	}
+}
+
+func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	key, isKey := msg.(tea.KeyMsg)
 	if isKey {
 		if key.String() == "ctrl+c" {
@@ -477,7 +500,8 @@ func (m model) summary() string {
 	switch {
 	case len(l.Sets) == 0:
 	case l.Fits():
-		b.WriteString(okStyle.Render("✅ Should fit (estimate: volume and item sizes only)") + "\n")
+		b.WriteString(okStyle.Render("✅ Passes volume and item-size checks") + "\n")
+		b.WriteString(m.packingLine())
 	default:
 		if avail < 0 {
 			b.WriteString(badStyle.Render(fmt.Sprintf("❌ Over capacity by %s", fmtVol(-avail))) + "\n")
@@ -487,6 +511,30 @@ func (m model) summary() string {
 		}
 	}
 	return b.String()
+}
+
+// packingLine reports the 3D packing heuristic. It is a search, so failing to
+// place something means "not found", and succeeding is not a guarantee either
+// (it ignores weight and crushing).
+func (m model) packingLine() string {
+	p := m.pack
+	switch {
+	case p.Total == 0:
+		return ""
+	case p.Skipped:
+		return dimStyle.Render(fmt.Sprintf("Packing: skipped, more than %d pieces", maxPackPieces)) + "\n"
+	case p.AllPlaced():
+		return okStyle.Render(fmt.Sprintf("✅ Packing heuristic found a layout for all %d pieces", p.Total)) + "\n"
+	}
+	var parts []string
+	for i, n := range p.Unplaced {
+		if n > 0 {
+			parts = append(parts, fmt.Sprintf("set #%d ×%d", i+1, n))
+		}
+	}
+	return badStyle.Render(fmt.Sprintf("⚠ Packing heuristic placed %d of %d pieces; couldn't place %s",
+		len(p.Placed), p.Total, strings.Join(parts, ", "))) + "\n" +
+		dimStyle.Render("  It can miss arrangements, so this may still fit if you load it by hand.") + "\n"
 }
 
 func (m model) help() string {
