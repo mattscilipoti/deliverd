@@ -296,16 +296,16 @@ func TestLayoutWorksWhenOverCapacity(t *testing.T) {
 func TestWindowSizeChangesLayoutScale(t *testing.T) {
 	m := typeSet(newTestModel(true), "40", "30", "20", "1")
 	m = press(m, "esc")
-	resize := func(w int) model {
-		next, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: 40})
+	resize := func(w, h int) model {
+		next, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 		return next.(model)
 	}
-	narrow, wide := resize(80), resize(200)
-	if narrow.width != 80 || wide.width != 200 {
+	narrow, wide := resize(80, 60), resize(200, 80)
+	if narrow.width != 80 || wide.width != 200 || wide.height != 80 {
 		t.Fatalf("widths = %d, %d", narrow.width, wide.width)
 	}
 	narrow, wide = press(narrow, "L"), press(wide, "L")
-	if !strings.Contains(narrow.View(), "One column ≈ 3 in") || !strings.Contains(wide.View(), "One column ≈ 1 in") {
+	if !strings.Contains(narrow.View(), "1 column ≈ 3 in") || !strings.Contains(wide.View(), "1 column ≈ 1 in") {
 		t.Errorf("scale should shrink with width:\n%s\n%s", narrow.View(), wide.View())
 	}
 }
@@ -313,7 +313,7 @@ func TestWindowSizeChangesLayoutScale(t *testing.T) {
 func TestLayoutDefaultsTo80Columns(t *testing.T) {
 	m := typeSet(newTestModel(true), "40", "30", "20", "1")
 	m = press(m, "esc", "L")
-	if m.width != 0 || !strings.Contains(m.View(), "One column ≈ 3 in") {
+	if m.width != 0 || !strings.Contains(m.View(), "1 column ≈ 3 in") {
 		t.Errorf("width=%d; an unknown width should lay out as 80 columns", m.width)
 	}
 }
@@ -544,7 +544,7 @@ func TestLayoutShowsBalanceAndWeightNotes(t *testing.T) {
 	m = press(m, "esc", "L")
 	v := m.View()
 	for _, want := range []string{"Weight balance:", "front half", "centre of mass", "Heavier pieces go in first"} {
-		if !strings.Contains(v, want) {
+		if !strings.Contains(flat(v), want) {
 			t.Errorf("layout missing %q:\n%s", want, v)
 		}
 	}
@@ -554,7 +554,7 @@ func TestLayoutShowsBalanceAndWeightNotes(t *testing.T) {
 	m = press(m, "x", "i")
 	m = typeSet(m, "5", "5", "5", "1") // a set with no weight
 	m = press(m, "esc", "L")
-	if !strings.Contains(m.View(), "treated as weightless") {
+	if !strings.Contains(flat(m.View()), "treated as weightless") {
 		t.Errorf("mixed weights should explain how unweighted pieces are handled:\n%s", m.View())
 	}
 }
@@ -565,3 +565,6 @@ func TestLayoutHasNoBalanceWithoutWeights(t *testing.T) {
 		t.Errorf("no weights entered, so there is no balance to report:\n%s", m.View())
 	}
 }
+
+// flat collapses runs of whitespace, so text that wraps can still be matched.
+func flat(s string) string { return strings.Join(strings.Fields(s), " ") }

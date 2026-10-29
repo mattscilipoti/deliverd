@@ -62,7 +62,8 @@ type model struct {
 	confirmAction func(*model)
 	helpReturn    mode // mode to go back to when help or the layout closes
 
-	width      int     // terminal width from the last WindowSizeMsg; 0 until known
+	width      int // terminal size from the last WindowSizeMsg; 0 until known
+	height     int
 	layoutPack Packing // packing computed when the layout was opened
 }
 
@@ -365,7 +366,7 @@ func (m *model) refreshPack() {
 
 func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if ws, ok := msg.(tea.WindowSizeMsg); ok {
-		m.width = ws.Width
+		m.width, m.height = ws.Width, ws.Height
 		return m, nil
 	}
 	key, isKey := msg.(tea.KeyMsg)
@@ -547,7 +548,7 @@ func (m model) View() string {
 	case modeHelp:
 		return helpText()
 	case modeLayout:
-		return renderLayout(m.load, m.layoutPack, m.layoutHeader(), m.layoutWidth())
+		return renderLayout(m.load, m.layoutPack, m.layoutHeader(), m.layoutWidth(), m.height)
 	}
 	var b strings.Builder
 	sp := m.load.Space

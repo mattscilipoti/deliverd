@@ -41,19 +41,6 @@ func cells(dim, per float64) int {
 	return max(1, int(math.Ceil(dim/per-1e-9)))
 }
 
-// chooseScale returns the smallest whole number of inches per column such that
-// the widest row of the layout fits in width. The rows are top + rear, and
-// driver side + passenger side; the latter is usually the wider.
-func chooseScale(sp Dims, width int) float64 {
-	for s := 1.0; s < 1000; s++ {
-		l, w := cells(sp.L, s), cells(sp.W, s)
-		if max(l+w, 2*l)+layoutMargin+layoutGap <= width {
-			return s
-		}
-	}
-	return 1000
-}
-
 // fill builds a grid by sampling the centre of each cell. at maps a cell to
 // the two plotted coordinates, within says whether a placement covers them,
 // and depth ranks overlapping pieces so the one nearest the viewer wins.
@@ -171,58 +158,136 @@ func indent(s string) string {
 	return pad + strings.ReplaceAll(s, "\n", "\n"+pad)
 }
 
-// renderLayout draws the whole layout screen. header describes the vehicle.
-func renderLayout(l Load, p Packing, header string, width int) string {
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("deliverd — layout (approximate)") + "\n" + header + "\n")
-	b.WriteString(dimStyle.Render("Dolly: "+dollyText(l.Dolly)) + "\n\n")
+type arrangement int
 
-	entries := l.All()
-	switch {
-	case len(entries) == 0:
-		b.WriteString("Nothing to show yet. Add item sets first.\n")
-	case p.Skipped:
-		fmt.Fprintf(&b, "Packing was skipped because there are more than %d pieces, so there is no layout to draw.\n", maxPackPieces)
-	case len(p.Placed) == 0:
-		b.WriteString("The packing heuristic couldn't place any pieces.\n")
-		b.WriteString(legend(l, p))
-	default:
-		s := chooseScale(l.Space, width)
-		v := buildViews(l.Space, p.Placed, s)
-		block := func(title string, vw view, caption string) string {
-			return titleStyle.Render(title) + "\n" + indent(vw.render(l)+"\n"+caption)
-		}
-		gap := strings.Repeat(" ", layoutGap)
-		row1 := lipgloss.JoinHorizontal(lipgloss.Top,
-			block("Top view", v.top, axis(v.top.cols, "front", "hatch")), gap,
-			block("Rear view", v.rear, axis(v.rear.cols, "driver", "passenger")))
-		row2 := lipgloss.JoinHorizontal(lipgloss.Top,
-			block("Driver side", v.driver, axis(v.driver.cols, "front", "hatch")), gap,
-			block("Passenger side", v.passenger, axis(v.passenger.cols, "hatch", "front")))
-		b.WriteString(row1 + "\n\n" + row2 + "\n\n")
+const (
+	arrRow  arrangement = iota // top, driver, passenger and rear side by side
+	arrGrid                    // top | rear above driver | passenger
+)
 
-		b.WriteString(dimStyle.Render(fmt.Sprintf("Cargo %s × %s × %s in. One column ≈ %.0f in, one row ≈ %.0f in.",
-			fmtNum(l.Space.L), fmtNum(l.Space.W), fmtNum(l.Space.H), s, 2*s)) + "\n")
-		for _, note := range []string{
-			"Top: passenger side up. Rear: looking forward. Sides: seen from outside.",
-			"Side and rear: top row is the ceiling. Left-hand drive assumed.",
-			"Heavier pieces go in first: low, forward, never on lighter ones.",
-			"Thin pieces may not show. The packing is a heuristic, not a guarantee.",
-		} {
-			b.WriteString(dimStyle.Render(note) + "\n")
-		}
-		if mixedWeights(l) {
-			b.WriteString(dimStyle.Render("Pieces with no weight are treated as weightless: nothing heavy rests on them.") + "\n")
-		}
-		b.WriteString("\n")
-		if bal, ok := p.Balance(l.Space); ok {
-			b.WriteString(fmt.Sprintf("Weight balance: %.0f%% in the front half, centre of mass %s in above the floor.\n\n",
-				bal.FrontShare*100, fmtNum(math.Round(bal.CenterZ))))
-		}
-		b.WriteString(legend(l, p))
+const maxLayoutScale = 12
+
+// estWidth is the width the views need at scale s, before anything is rendered.
+func estWidth(sp Dims, s float64, arr arrangement) int {
+	l, w := cells(sp.L, s), cells(sp.W, s)
+	if arr == arrRow {
+		return layoutMargin + 3*l + w + 3*layoutGap
 	}
-	b.WriteString("\n" + dimStyle.Render("D dolly: off / behind seats / with items • any other key returns") + "\n")
-	return b.String()
+	return layoutMargin + max(l+w, 2*l) + layoutGap
+}
+
+// wrapText breaks s into lines of at most width characters at spaces.
+func wrapText(s string, width int) []string {
+	var lines []string
+	var cur string
+	for _, w := range strings.Fields(s) {
+		switch {
+		case cur == "":
+			cur = w
+		case len([]rune(cur))+1+len([]rune(w)) <= width:
+			cur += " " + w
+		default:
+			lines = append(lines, cur)
+			cur = w
+		}
+	}
+	if cur != "" {
+		lines = append(lines, cur)
+	}
+	return lines
+}
+
+func layoutHead(l Load, header string) string {
+	return titleStyle.Render("deliverd — layout (approximate)") + "\n" +
+		header + dimStyle.Render("  ·  Dolly: "+dollyText(l.Dolly))
+}
+
+const layoutFoot = "D dolly: off / behind seats / with items • any other key returns"
+
+// composeViews lays the four views out in the given arrangement.
+func composeViews(l Load, v views, arr arrangement) string {
+	block := func(title string, vw view, caption string) string {
+		return titleStyle.Render(title) + "\n" + vw.render(l) + "\n" + caption
+	}
+	gap := strings.Repeat(" ", layoutGap)
+	top := block("Top view", v.top, axis(v.top.cols, "front", "hatch"))
+	driver := block("Driver side", v.driver, axis(v.driver.cols, "front", "hatch"))
+	passenger := block("Passenger side", v.passenger, axis(v.passenger.cols, "hatch", "front"))
+	rear := block("Rear view", v.rear, axis(v.rear.cols, "driver", "passenger"))
+	if arr == arrRow {
+		return indent(lipgloss.JoinHorizontal(lipgloss.Top, top, gap, driver, gap, passenger, gap, rear))
+	}
+	return indent(lipgloss.JoinHorizontal(lipgloss.Top, top, gap, rear) + "\n" +
+		lipgloss.JoinHorizontal(lipgloss.Top, driver, gap, passenger))
+}
+
+// composeScreen assembles the whole layout screen for one scale and arrangement.
+func composeScreen(l Load, p Packing, header string, width int, s float64, arr arrangement) string {
+	v := buildViews(l.Space, p.Placed, s)
+	parts := []string{layoutHead(l, header), composeViews(l, v, arr)}
+
+	scale := fmt.Sprintf("Cargo %s × %s × %s in · 1 column ≈ %.0f in, 1 row ≈ %.0f in",
+		fmtNum(l.Space.L), fmtNum(l.Space.W), fmtNum(l.Space.H), s, 2*s)
+	notes := "Top: passenger side up. Rear: looking forward. Sides: seen from outside the car. " +
+		"Side and rear: top row is the ceiling. Left-hand drive assumed. " +
+		"Heavier pieces go in first: low, forward, never on lighter ones. " +
+		"Thin pieces may not show. The packing is a heuristic, not a guarantee."
+	if mixedWeights(l) {
+		notes += " Pieces with no weight are treated as weightless: nothing heavy rests on them."
+	}
+	text := []string{scale}
+	text = append(text, wrapText(notes, width-layoutMargin)...)
+	for i, line := range text {
+		text[i] = indent(dimStyle.Render(line))
+	}
+	parts = append(parts, strings.Join(text, "\n"))
+
+	if bal, ok := p.Balance(l.Space); ok {
+		parts = append(parts, indent(fmt.Sprintf("Weight balance: %.0f%% in the front half, centre of mass %s in above the floor.",
+			bal.FrontShare*100, fmtNum(math.Round(bal.CenterZ)))))
+	}
+	parts = append(parts, legendBlock(l, p, width), dimStyle.Render(layoutFoot))
+	return strings.Join(parts, "\n")
+}
+
+// renderLayout draws the layout screen. header describes the vehicle. It picks
+// the finest scale at which the views, in a single row if that fits or else a
+// 2×2 grid, fit within width and, when height is known (> 0), height.
+func renderLayout(l Load, p Packing, header string, width, height int) string {
+	head, foot := layoutHead(l, header), dimStyle.Render(layoutFoot)
+	switch {
+	case len(l.All()) == 0:
+		return head + "\nNothing to show yet. Add item sets first.\n" + foot + "\n"
+	case p.Skipped:
+		return head + fmt.Sprintf("\nPacking was skipped because there are more than %d pieces, so there is no layout to draw.\n", maxPackPieces) + foot + "\n"
+	case len(p.Placed) == 0:
+		return head + "\nThe packing heuristic couldn't place any pieces.\n" + legendBlock(l, p, width) + "\n" + foot + "\n"
+	}
+
+	var best string
+	bestLines := -1
+	for s := 1.0; s <= maxLayoutScale; s++ {
+		for _, arr := range []arrangement{arrRow, arrGrid} {
+			if estWidth(l.Space, s, arr) > width {
+				continue
+			}
+			screen := composeScreen(l, p, header, width, s, arr)
+			if lipgloss.Width(screen) > width {
+				continue
+			}
+			n := strings.Count(screen, "\n") + 1
+			if height <= 0 || n <= height-1 { // leave a line so nothing scrolls off the top
+				return screen + "\n"
+			}
+			if bestLines < 0 || n < bestLines {
+				best, bestLines = screen, n
+			}
+		}
+	}
+	if best == "" { // too narrow for any scale: draw the coarsest grid anyway
+		best = composeScreen(l, p, header, width, maxLayoutScale, arrGrid)
+	}
+	return best + "\n"
 }
 
 // mixedWeights reports whether some entries have a weight and some do not.
@@ -238,12 +303,35 @@ func mixedWeights(l Load) bool {
 	return with && without
 }
 
-func legend(l Load, p Packing) string {
+// legendBlock lists the entries in as many columns as fit within width.
+func legendBlock(l Load, p Packing, width int) string {
+	lines := legendLines(l, p)
+	colW := 0
+	for _, ln := range lines {
+		colW = max(colW, lipgloss.Width(ln))
+	}
+	cols := max(1, min(len(lines), (width-layoutMargin+layoutGap)/(colW+layoutGap)))
+	rows := (len(lines) + cols - 1) / cols
+	var blocks []string
+	for c := 0; c < cols; c++ {
+		lo, hi := c*rows, min((c+1)*rows, len(lines))
+		if lo >= hi {
+			break
+		}
+		blocks = append(blocks, strings.Join(lines[lo:hi], "\n"))
+		if c < cols-1 {
+			blocks = append(blocks, strings.Repeat(" ", layoutGap))
+		}
+	}
+	return indent(lipgloss.JoinHorizontal(lipgloss.Top, blocks...))
+}
+
+func legendLines(l Load, p Packing) []string {
 	placed := make([]int, len(l.All()))
 	for _, pl := range p.Placed {
 		placed[pl.Set]++
 	}
-	var b strings.Builder
+	var out []string
 	for i, s := range l.All() {
 		name := fmt.Sprintf("set #%d", i+1)
 		if l.DollyPacked() && i == len(l.Sets) {
@@ -260,7 +348,7 @@ func legend(l Load, p Packing) string {
 			line = badStyle.Render(fmt.Sprintf("%c  %-7s %2d × %s×%s×%s in   placed %d of %d — %d not placed%s",
 				labelFor(l, i), name, s.Qty, fmtNum(s.L), fmtNum(s.W), fmtNum(s.H), placed[i], s.Qty, s.Qty-placed[i], tail))
 		}
-		b.WriteString(indent(line) + "\n")
+		out = append(out, line)
 	}
-	return b.String()
+	return out
 }
