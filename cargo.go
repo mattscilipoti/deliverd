@@ -4,7 +4,11 @@ import "sort"
 
 const cubicInchesPerCubicFoot = 1728
 
-type Dims struct{ L, W, H float64 }
+type Dims struct {
+	L float64 `json:"l"`
+	W float64 `json:"w"`
+	H float64 `json:"h"`
+}
 
 func (d Dims) Volume() float64 { return d.L * d.W * d.H }
 
@@ -27,7 +31,7 @@ func FitsInside(item, space Dims) bool {
 }
 
 type ItemSet struct {
-	Qty int
+	Qty int `json:"qty"`
 	Dims
 }
 
