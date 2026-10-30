@@ -21,9 +21,11 @@
     "source=deliverd-go-mod,target=/go/pkg,type=volume",
     "source=deliverd-go-cache,target=/home/vscode/.cache/go-build,type=volume",
     // Persist Claude Code login and settings across container rebuilds.
-    "source=deliverd-claude-config,target=/home/vscode/.claude,type=volume"
+    "source=deliverd-claude-config,target=/home/vscode/.claude,type=volume",
+    // Persist deliverd's saved loads (~/.config/deliverd/loads) across container rebuilds.
+    "source=deliverd-saved-loads,target=/home/vscode/.config/deliverd,type=volume"
   ],
-  "postCreateCommand": "sudo chown -R vscode:vscode /go /home/vscode/.cache /home/vscode/.claude && go version && go install golang.org/x/tools/gopls@latest && go install github.com/go-delve/delve/cmd/dlv@latest",
+  "postCreateCommand": "sudo chown -R vscode:vscode /go /home/vscode/.cache /home/vscode/.claude /home/vscode/.config && go version && go install golang.org/x/tools/gopls@latest && go install github.com/go-delve/delve/cmd/dlv@latest",
   "customizations": {
     "vscode": {
       "extensions": [
